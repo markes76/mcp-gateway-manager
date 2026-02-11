@@ -2,105 +2,218 @@
 
 ![MCP Gateway Manager logo](./logo.png)
 
-MCP Gateway Manager is a local-first desktop app that centralizes MCP server configuration for Claude, Cursor, and Codex.
+**One app to manage all your MCP servers across Claude, Cursor, and Codex.**
 
-Version: **1.0.0**  
+Version: **2.0.0**
 License: **MIT**
+
+---
 
 ## Why this exists
 
-Managing MCPs across multiple AI tools is fragmented and error-prone. MCP Gateway Manager gives you one control surface to:
-- Share MCPs across platforms.
-- Keep selected MCPs platform-specific.
-- Enable/disable globally or per platform.
-- Safely preview and apply changes with backups.
-- Analyze MCP docs/URLs with AI and prefill configuration.
+Every AI coding tool has its own MCP config file in a different location with a slightly different format. Adding, updating, or removing an MCP server means editing JSON files by hand across multiple platforms. MCP Gateway Manager eliminates that fragmentation.
+
+**One matrix. All platforms. Instant sync.**
+
+## What's new in v2
+
+- **Local AI model** — A built-in Qwen 2.5 1.5B model analyzes MCP packages and auto-fills configuration. Runs entirely on your machine. No API keys, no cloud, completely free.
+- **Smart + Manual modes** — Paste a URL for AI-assisted setup, or fill in the config manually if you know what you're doing.
+- **Redesigned UI** — Clean, enterprise-grade interface built from scratch with a new design system.
+- **Help guide** — Built-in documentation explaining every feature.
+- **Download progress** — Model downloads run in the background with real-time progress tracking.
+- **Installable app** — DMG for macOS (drag to Applications), NSIS installer for Windows, AppImage for Linux.
 
 ## Core features
 
-- Unified Platform Matrix for Claude, Cursor, and Codex.
-- Assistant intake flow for URL/doc-based MCP onboarding.
-- Config merge support across default + additional path sources.
-- Preview Sync before write.
-- Apply Sync with rollback-aware operations and backup files.
-- Activity log for assistant analysis, settings changes, sync apply, and restarts.
-- Safety-first restart automation:
-  - Claude/Cursor can be restarted from the app.
-  - Codex is intentionally excluded from auto-restart to avoid interrupting active sessions.
+| Feature | Description |
+|---------|-------------|
+| **Unified Matrix** | Add MCP servers once, sync to Claude, Cursor, and Codex simultaneously |
+| **Smart Analysis** | Paste a URL or npm package — AI reads the docs and pre-fills command, args, and env vars |
+| **Manual Config** | Power users can fill in server configs directly without AI |
+| **Preview & Apply** | See exactly what changes will be written before applying them |
+| **Automatic Backups** | Every sync creates a backup. One-click revert from the Activity page |
+| **Per-Platform Control** | Enable/disable servers globally or per platform |
+| **Activity Timeline** | Full history of syncs, reverts, analyses, and config changes |
+| **Local AI Model** | ~900 MB download, Apache 2.0 license, runs offline via node-llama-cpp |
+| **Platform Restart** | Restart Claude/Cursor from the app after syncing (Codex excluded to protect active sessions) |
 
-## Workspace layout
+## Screenshots
 
-- `apps/desktop`: Electron + React GUI.
-- `packages/domain`: canonical domain types and validation.
-- `packages/ipc-contracts`: typed IPC channel names and payloads.
-- `packages/platform-adapters`: Claude/Cursor/Codex config adapters.
-- `packages/sync-engine`: sync planning, apply, rollback, journaling.
-- `packages/assistant`: Codex Internal provider + deterministic fallback URL intake.
+> Launch the app with `pnpm dev` from `apps/desktop-v2/` to see the UI.
+
+## Architecture
+
+```
+apps/
+  desktop-v2/          # Electron + React + TypeScript (v2 — current)
+    electron/
+      main.ts          # Main process — IPC handlers, window management
+      preload.ts       # Context bridge — typed API for renderer
+      local-llm.ts     # Two-layer MCP analysis (heuristic + AI)
+      model-manager.ts # Model lifecycle — download, load, prompt
+      mcp-prompt.ts    # System prompt + JSON schema for AI output
+    src/
+      components/      # React UI — layout, pages, shared components
+      lib/             # Utilities — assistant, matrix, theme, shortcuts
+      styles/          # Design tokens, globals, layout, components CSS
+  desktop/             # v1 desktop app (preserved for reference)
+
+packages/
+  domain/              # Canonical types — MCPServerDefinition, ThemeMode
+  ipc-contracts/       # Typed IPC channels, payloads, GatewayApi interface
+  platform-adapters/   # Read/write adapters for Claude, Cursor, Codex configs
+  sync-engine/         # Sync planning, diffing, applying, rollback, journaling
+  assistant/           # URL parser + deterministic MCP config extraction
+```
 
 ## Requirements
 
-- macOS (current release packaging target)
-- Node.js 20+
-- pnpm 9+
+- **macOS** 12+ / **Windows** 10+ / **Linux** (x86_64, arm64)
+- **Node.js** 20+
+- **pnpm** 9+
 
-## Quick start
-
-From workspace root:
+## Quick start (development)
 
 ```bash
+# Clone the repo
+git clone https://github.com/markes76/mcp-gateway-manager.git
+cd mcp-gateway-manager
+
+# Install dependencies
 pnpm install
+
+# Start v2 in development mode
+cd apps/desktop-v2
 pnpm dev
 ```
 
-## Full quality + build pipeline
+The Electron window opens with hot reload enabled.
+
+## Build & package
+
+### macOS (.app + .dmg)
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
-pnpm package:mac:dmg
+cd apps/desktop-v2
+pnpm dist:mac
 ```
 
-Artifacts are produced under:
-- `apps/desktop/release/`
+Output: `apps/desktop-v2/release/` — includes a `.dmg` with drag-to-Applications and a `.zip`.
 
-## Install app to Applications
+### Windows (.exe installer)
 
 ```bash
-pnpm install:mac
+cd apps/desktop-v2
+pnpm dist:win
 ```
 
-Then launch:
+Output: `apps/desktop-v2/release/` — NSIS installer `.exe`.
+
+### Linux (.AppImage)
 
 ```bash
-open -a '/Applications/MCP Gateway Manager.app'
+cd apps/desktop-v2
+pnpm dist
 ```
 
-## Logo and app icon pipeline
-
-- Source logo: `logo.png` (repo root)
-- Desktop UI asset: `apps/desktop/src/assets/logo.png`
-- macOS icon output: `apps/desktop/build/icon.icns`
-- Generator script: `apps/desktop/scripts/generate-macos-icon.sh`
-
-The icon generation runs automatically during:
-- `pnpm --filter @mcp-gateway/desktop package:mac`
-- `pnpm --filter @mcp-gateway/desktop package:mac:dmg`
-
-## Public GitHub setup
-
-After creating a public repository, push this project:
+### Install to Applications (macOS — manual)
 
 ```bash
-git init
-git add .
-git commit -m "release: v1.0.0"
-git branch -M main
-git remote add origin <your-github-repo-url>
-git push -u origin main
+cp -R "apps/desktop-v2/release/mac-arm64/MCP Gateway Manager.app" /Applications/
+open -a "MCP Gateway Manager"
 ```
+
+## How it works
+
+### Adding an MCP server (Smart mode)
+
+1. Go to **Sync** tab, select **Smart** toggle
+2. Paste a URL, npm package name, or GitHub repo
+3. Click **Analyze** — the system parses the URL and (if AI model is downloaded) extracts the config
+4. Review the pre-filled name, command, arguments, and env vars
+5. Click **Add to Matrix**
+
+### Adding an MCP server (Manual mode)
+
+1. Go to **Sync** tab, select **Manual** toggle
+2. Fill in server name, command (e.g. `npx`), and arguments
+3. Select target platforms
+4. Click **Add to Matrix**
+
+### Syncing to platforms
+
+1. Click **Preview** to see what changes will be written to each platform
+2. Review the diff
+3. Click **Apply Sync** — configs are written, backups are created automatically
+
+### AI Model
+
+The local AI model is optional but recommended. It runs entirely on your machine:
+
+- **Model:** Qwen 2.5 1.5B Instruct (Q4_K_M)
+- **Size:** ~900 MB download
+- **License:** Apache 2.0
+- **Runtime:** node-llama-cpp (llama.cpp via N-API)
+- **Download:** Settings > AI Model > Download
+
+The model uses grammar-constrained output (GBNF JSON schema) to guarantee valid structured responses. Without it, Smart mode falls back to URL pattern matching.
+
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Desktop runtime | Electron 33 |
+| UI framework | React 18 |
+| Language | TypeScript 5 |
+| Build | Vite 6 + vite-plugin-electron |
+| Styling | Custom design tokens + CSS (no framework) |
+| State | React useState/useEffect (no external state lib) |
+| AI inference | node-llama-cpp 3 (llama.cpp N-API bindings) |
+| AI model | Qwen 2.5 1.5B Instruct Q4_K_M (GGUF) |
+| Packaging | electron-builder 26 |
+| Monorepo | pnpm workspaces |
+| Testing | Vitest |
+
+## Workspace scripts
+
+From the monorepo root:
+
+```bash
+pnpm install          # Install all dependencies
+pnpm typecheck        # TypeScript checks across all packages
+pnpm lint             # ESLint across all packages
+pnpm test             # Vitest across all packages
+```
+
+From `apps/desktop-v2/`:
+
+```bash
+pnpm dev              # Start dev mode with hot reload
+pnpm build            # TypeCheck + Vite production build
+pnpm dist:mac         # Build + package macOS DMG
+pnpm dist:win         # Build + package Windows installer
+pnpm dist             # Build + package for current platform
+```
+
+## Supported platforms
+
+| Platform | Config location | Restart support |
+|----------|----------------|-----------------|
+| **Claude** | `~/.claude/claude_desktop_config.json` | Yes |
+| **Cursor** | `~/.cursor/mcp.json` | Yes |
+| **Codex** | `~/.codex/config.json` | No (protects active sessions) |
+
+Config paths can be overridden in Settings > Platform Config Paths.
+
+## Logo & app icon
+
+- Source: `logo.png` (1024x1024, repo root)
+- macOS: `apps/desktop-v2/build/icon.icns` + `icon.iconset/`
+- Windows/Linux: `apps/desktop-v2/build/icon.png`
+
+The logo is used as the application icon (dock, taskbar, installer). It is not displayed inside the app UI.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](./LICENSE).

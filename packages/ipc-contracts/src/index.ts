@@ -17,7 +17,9 @@ export const IPCChannels = {
   previewSync: "gateway:preview-sync",
   applySync: "gateway:apply-sync",
   restartPlatforms: "gateway:restart-platforms",
-  assistantSuggestFromUrl: "gateway:assistant-suggest-from-url"
+  assistantSuggestFromUrl: "gateway:assistant-suggest-from-url",
+  modelGetStatus: "assistant:model-status",
+  modelDownload: "assistant:model-download"
 } as const;
 
 export interface HealthCheckResponse {
@@ -240,8 +242,20 @@ export interface AssistantEnvVarHint {
   example?: string;
 }
 
+export interface ModelStatusResponse {
+  downloaded: boolean;
+  modelName: string;
+  modelPath: string;
+  sizeBytes: number | null;
+  downloading: boolean;
+  downloadProgress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  downloadError: string | null;
+}
+
 export interface AssistantSuggestionResponse {
-  provider: AssistantBackendProvider | "heuristic-fallback";
+  provider: AssistantBackendProvider | "local-llm" | "heuristic-fallback";
   mode: "live" | "fallback";
   normalizedUrl: string;
   sourceKind: AssistantSourceKind;
@@ -279,4 +293,6 @@ export interface GatewayApi {
   assistantSuggestFromUrl: (
     payload: AssistantSuggestRequest
   ) => Promise<AssistantSuggestionResponse>;
+  getModelStatus: () => Promise<ModelStatusResponse>;
+  downloadModel: () => Promise<ModelStatusResponse>;
 }

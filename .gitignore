@@ -10,5 +10,6 @@ dist-electron
 .env.local
 .env.*
 apps/desktop/release
+apps/desktop-v2/release
 .cache
 .mcp-gateway
