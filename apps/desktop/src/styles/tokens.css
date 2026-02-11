@@ -1,0 +1,35 @@
+:root {
+  color-scheme: light;
+  --font-display: "Sora", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+
+  --bg: #f4f6f4;
+  --bg-elevated: #ffffff;
+  --bg-sidebar: #eef2ef;
+  --text-primary: #122117;
+  --text-muted: #4e5f53;
+  --border: #d1dbd3;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --shadow: 0 14px 34px rgba(11, 33, 23, 0.08);
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --space-xs: 0.375rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101715;
+  --bg-elevated: #18211f;
+  --bg-sidebar: #141d1a;
+  --text-primary: #ecf5ef;
+  --text-muted: #b0c2b6;
+  --border: #2b3b35;
+  --accent: #2caea5;
+  --accent-strong: #24938b;
+  --shadow: 0 14px 34px rgba(4, 8, 6, 0.45);
+}

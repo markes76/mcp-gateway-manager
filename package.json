@@ -1,0 +1,28 @@
+{
+  "name": "mcp-gateway-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-first desktop MCP gateway manager for Claude, Cursor, and Codex.",
+  "license": "MIT",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @mcp-gateway/desktop dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "package:mac": "pnpm -r build && pnpm --filter @mcp-gateway/desktop package:mac",
+    "package:mac:dmg": "pnpm -r build && pnpm --filter @mcp-gateway/desktop package:mac:dmg",
+    "install:mac": "pnpm -r build && pnpm --filter @mcp-gateway/desktop package:mac && pnpm --filter @mcp-gateway/desktop install:mac"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "globals": "^15.14.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

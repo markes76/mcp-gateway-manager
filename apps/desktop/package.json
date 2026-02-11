@@ -1,0 +1,63 @@
+{
+  "name": "@mcp-gateway/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Desktop control plane for managing MCP configs across Claude, Cursor, and Codex.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "dependencies": {
+    "@mcp-gateway/assistant": "workspace:*",
+    "@mcp-gateway/domain": "workspace:*",
+    "@mcp-gateway/ipc-contracts": "workspace:*",
+    "@mcp-gateway/platform-adapters": "workspace:*",
+    "@mcp-gateway/sync-engine": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.0",
+    "electron-builder": "^26.7.0",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.6",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^2.1.8"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint 'src/**/*.{ts,tsx}' 'electron/**/*.ts'",
+    "test": "vitest run",
+    "generate:icon": "bash ./scripts/generate-macos-icon.sh",
+    "package:mac": "pnpm run generate:icon && bash ./scripts/package-macos.sh dir",
+    "package:mac:dmg": "pnpm run generate:icon && bash ./scripts/package-macos.sh dmg zip",
+    "install:mac": "bash ./scripts/install-macos-app.sh"
+  },
+  "build": {
+    "appId": "com.mcpgateway.manager",
+    "productName": "MCP Gateway Manager",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@mcp-gateway/sync-engine",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mcp-gateway/domain": "workspace:*",
+    "@mcp-gateway/platform-adapters": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint 'src/**/*.ts' 'test/**/*.ts'",
+    "test": "vitest run"
+  }
+}
