@@ -1399,13 +1399,9 @@ function registerIpcHandlers(): void {
         throw new Error("Assistant input URL is required.");
       }
 
-      const userConfig = await readUserConfig();
       const assistantOptions: AssistantAnalysisOptions = {
-        provider: userConfig.assistant.provider,
-        apiKey: userConfig.assistant.apiKey ?? undefined,
-        model: userConfig.assistant.model ?? undefined,
-        endpoint: userConfig.assistant.endpoint ?? undefined,
-        strictMode: userConfig.assistant.strictMode
+        provider: "codex-internal",
+        strictMode: true
       };
       const suggestion = await assistantProvider.suggestFromUrl(payload.input, assistantOptions);
 

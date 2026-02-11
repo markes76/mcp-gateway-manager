@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { ThemeMode } from "@mcp-gateway/domain";
 import type {
   ActivityEntry,
-  AssistantBackendProvider,
   AssistantSuggestionResponse,
   GatewayStateResponse,
   MatrixPolicyInput,
@@ -50,14 +49,6 @@ const pages: Array<{ key: PageKey; label: string }> = [
   { key: "history", label: "Revisions" },
   { key: "settings", label: "Settings" },
   { key: "help", label: "Help & Guide" }
-];
-
-const assistantBackendOptions: Array<{ value: AssistantBackendProvider; label: string }> = [
-  { value: "codex-internal", label: "Codex Internal (OpenAI Responses API)" },
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic Claude" },
-  { value: "gemini", label: "Google Gemini" },
-  { value: "bedrock", label: "Bedrock (Endpoint/Proxy Mode)" }
 ];
 
 function labelForPlatform(platform: SupportedPlatform): string {
@@ -138,26 +129,6 @@ function toAdditionalPathInputs(config: UserConfigResponse | null): Record<Suppo
     cursor: [...config.platforms.cursor.additionalConfigPaths],
     codex: [...config.platforms.codex.additionalConfigPaths]
   };
-}
-
-function toAssistantBackendProvider(config: UserConfigResponse | null): AssistantBackendProvider {
-  return config?.assistant.provider ?? "codex-internal";
-}
-
-function toAssistantBackendApiKey(config: UserConfigResponse | null): string {
-  return config?.assistant.apiKey ?? "";
-}
-
-function toAssistantBackendModel(config: UserConfigResponse | null): string {
-  return config?.assistant.model ?? "";
-}
-
-function toAssistantBackendEndpoint(config: UserConfigResponse | null): string {
-  return config?.assistant.endpoint ?? "";
-}
-
-function toAssistantStrictMode(config: UserConfigResponse | null): boolean {
-  return config?.assistant.strictMode ?? true;
 }
 
 function toBackupPromptBeforeApply(config: UserConfigResponse | null): boolean {
@@ -246,12 +217,6 @@ export default function App() {
   const [settingsAdditionalPaths, setSettingsAdditionalPaths] = useState<Record<SupportedPlatform, string[]>>(
     emptyAdditionalPathInputs()
   );
-  const [assistantBackendProvider, setAssistantBackendProvider] =
-    useState<AssistantBackendProvider>("codex-internal");
-  const [assistantBackendApiKey, setAssistantBackendApiKey] = useState("");
-  const [assistantBackendModel, setAssistantBackendModel] = useState("");
-  const [assistantBackendEndpoint, setAssistantBackendEndpoint] = useState("");
-  const [assistantStrictMode, setAssistantStrictMode] = useState(true);
   const [backupPromptBeforeApply, setBackupPromptBeforeApply] = useState(true);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -296,11 +261,6 @@ export default function App() {
       setUserConfig(config);
       setSettingsPaths(toPathInputs(config));
       setSettingsAdditionalPaths(toAdditionalPathInputs(config));
-      setAssistantBackendProvider(toAssistantBackendProvider(config));
-      setAssistantBackendApiKey(toAssistantBackendApiKey(config));
-      setAssistantBackendModel(toAssistantBackendModel(config));
-      setAssistantBackendEndpoint(toAssistantBackendEndpoint(config));
-      setAssistantStrictMode(toAssistantStrictMode(config));
       setBackupPromptBeforeApply(toBackupPromptBeforeApply(config));
     } catch (error) {
       setSettingsMessage(error instanceof Error ? error.message : "Failed to load settings.");
@@ -404,7 +364,7 @@ export default function App() {
       case "history":
         return "Backups and revision rollback controls.";
       case "settings":
-        return "Platform paths, AI backend, and safety defaults.";
+        return "Platform paths and safety defaults.";
       case "help":
         return "Quick-start and troubleshooting guidance.";
       default:
@@ -678,7 +638,7 @@ export default function App() {
       return;
     }
 
-    setAssistantMessage(`Analyzing with ${assistantBackendProvider}...`);
+    setAssistantMessage("Analyzing...");
 
     try {
       const suggestion = await window.mcpGateway.assistantSuggestFromUrl({
@@ -694,7 +654,7 @@ export default function App() {
       setAssistantScope("all");
       setAssistantEnvValues((current) => toAssistantEnvInputs(suggestion, current));
       setAssistantMessage(
-        `Detected ${suggestion.sourceKind} via ${suggestion.provider} (${suggestion.mode}). Review and apply when ready.`
+        `Detected ${suggestion.sourceKind}. Review and apply when ready.`
       );
     } catch (error) {
       setAssistantMessage(
@@ -868,15 +828,6 @@ export default function App() {
       return;
     }
 
-    if (
-      assistantBackendProvider === "bedrock" &&
-      assistantBackendApiKey.trim().length > 0 &&
-      assistantBackendEndpoint.trim().length === 0
-    ) {
-      setSettingsMessage("Bedrock mode requires an endpoint (proxy/API gateway URL) when an API key is provided.");
-      return;
-    }
-
     setIsSavingSettings(true);
     setSettingsMessage(null);
 
@@ -897,11 +848,11 @@ export default function App() {
           }
         },
         assistant: {
-          provider: assistantBackendProvider,
-          apiKey: sanitizePathInput(assistantBackendApiKey),
-          model: sanitizePathInput(assistantBackendModel),
-          endpoint: sanitizePathInput(assistantBackendEndpoint),
-          strictMode: assistantStrictMode
+          provider: "codex-internal",
+          apiKey: null,
+          model: null,
+          endpoint: null,
+          strictMode: true
         },
         backup: {
           promptBeforeApply: backupPromptBeforeApply
@@ -911,11 +862,6 @@ export default function App() {
       setUserConfig(updated);
       setSettingsPaths(toPathInputs(updated));
       setSettingsAdditionalPaths(toAdditionalPathInputs(updated));
-      setAssistantBackendProvider(toAssistantBackendProvider(updated));
-      setAssistantBackendApiKey(toAssistantBackendApiKey(updated));
-      setAssistantBackendModel(toAssistantBackendModel(updated));
-      setAssistantBackendEndpoint(toAssistantBackendEndpoint(updated));
-      setAssistantStrictMode(toAssistantStrictMode(updated));
       setBackupPromptBeforeApply(toBackupPromptBeforeApply(updated));
       setSettingsMessage(
         `Settings saved at ${new Date(updated.savedAt ?? new Date().toISOString()).toLocaleTimeString()}.`
@@ -1168,7 +1114,7 @@ export default function App() {
           <article className="card card-hero">
             <h3>What changed in this release</h3>
             <ul>
-              <li>AI backend settings now support OpenAI, Anthropic, Gemini, and Bedrock proxy mode.</li>
+              <li>Assistant workflow now uses a simpler fixed Codex Internal analysis mode.</li>
               <li>Every apply writes revision history and one-click revert options.</li>
               <li>Optional manual snapshot can run before apply for extra safety.</li>
             </ul>
@@ -1189,10 +1135,7 @@ export default function App() {
               configure Tavily MCP?&rdquo;
             </p>
           ) : null}
-          <p className="helper-text">
-            Backend: <strong>{assistantBackendProvider}</strong> | Strict mode:{" "}
-            <strong>{assistantStrictMode ? "On" : "Off"}</strong>
-          </p>
+          <p className="helper-text">Assistant uses Codex Internal analysis.</p>
           <div className="field-grid">
             <label className="form-field">
               <span>MCP URL Or Question</span>
@@ -1842,73 +1785,9 @@ export default function App() {
         </article>
 
         <article className="card card-hero">
-          <h3>Assistant Backend</h3>
-          <p>Choose the AI provider and strict mode for MCP analysis.</p>
-          {isAdvancedView ? (
-            <p>
-              Strict evidence mode blocks guesswork when documentation cannot be verified.
-            </p>
-          ) : null}
-          <div className="field-grid assistant-backend-grid">
-            <label className="form-field">
-              <span>Provider</span>
-              <select
-                className="text-input"
-                onChange={(event) =>
-                  setAssistantBackendProvider(event.target.value as AssistantBackendProvider)
-                }
-                value={assistantBackendProvider}
-              >
-                {assistantBackendOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="form-field">
-              <span>API Key</span>
-              <input
-                className="text-input"
-                onChange={(event) => setAssistantBackendApiKey(event.target.value)}
-                placeholder="Paste provider API key"
-                type="password"
-                value={assistantBackendApiKey}
-              />
-            </label>
-
-            <label className="form-field">
-              <span>Model (optional override)</span>
-              <input
-                className="text-input"
-                onChange={(event) => setAssistantBackendModel(event.target.value)}
-                placeholder="Use provider default if empty"
-                type="text"
-                value={assistantBackendModel}
-              />
-            </label>
-
-            <label className="form-field">
-              <span>Endpoint (optional override)</span>
-              <input
-                className="text-input"
-                onChange={(event) => setAssistantBackendEndpoint(event.target.value)}
-                placeholder="Use provider default endpoint if empty"
-                type="text"
-                value={assistantBackendEndpoint}
-              />
-            </label>
-          </div>
+          <h3>Safety Preferences</h3>
+          <p>Assistant analysis is fixed to Codex Internal. Configure backup behavior below.</p>
           <div className="field-grid">
-            <label className="form-field checkbox-field">
-              <input
-                checked={assistantStrictMode}
-                onChange={(event) => setAssistantStrictMode(event.target.checked)}
-                type="checkbox"
-              />
-              <span>Strict evidence mode (no guessing)</span>
-            </label>
             <label className="form-field checkbox-field">
               <input
                 checked={backupPromptBeforeApply}
@@ -2043,11 +1922,6 @@ export default function App() {
               onClick={() => {
                 setSettingsPaths(toPathInputs(userConfig));
                 setSettingsAdditionalPaths(toAdditionalPathInputs(userConfig));
-                setAssistantBackendProvider(toAssistantBackendProvider(userConfig));
-                setAssistantBackendApiKey(toAssistantBackendApiKey(userConfig));
-                setAssistantBackendModel(toAssistantBackendModel(userConfig));
-                setAssistantBackendEndpoint(toAssistantBackendEndpoint(userConfig));
-                setAssistantStrictMode(toAssistantStrictMode(userConfig));
                 setBackupPromptBeforeApply(toBackupPromptBeforeApply(userConfig));
               }}
               type="button"
