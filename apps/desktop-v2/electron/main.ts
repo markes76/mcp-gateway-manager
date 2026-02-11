@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { access, appendFile, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -45,6 +46,10 @@ import {
   type ActivityLogResponse,
   type AssistantSuggestRequest,
   type AssistantSuggestionResponse,
+  BUILT_IN_PLATFORMS,
+  type CustomPlatformAddRequest,
+  type CustomPlatformEntry,
+  type CustomPlatformRemoveRequest,
   IPCChannels,
   type ApplySyncResponse,
   type GatewayStateResponse,
@@ -57,6 +62,8 @@ import {
   type PathActionResponse,
   type PickConfigFileRequest,
   type PickConfigFileResponse,
+  type PlatformCategory,
+  type PlatformPlanSummary,
   type RevertRevisionRequest,
   type RevertRevisionResponse,
   type PlatformSnapshot,
@@ -77,6 +84,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const execFileAsync = promisify(execFile);
+const homedir = os.homedir();
 
 const PLATFORM_ORDER: SupportedPlatform[] = ["claude", "cursor", "codex"];
 
@@ -86,9 +94,95 @@ const adapters: AdapterMap = {
   codex: createCodexAdapter()
 };
 
+// ---------- Known platforms (auto-discovered) ----------
+
+interface KnownPlatformDef {
+  id: string;
+  name: string;
+  configKey: string;
+  candidates: Partial<Record<string, string[]>>;
+}
+
+const KNOWN_PLATFORMS: KnownPlatformDef[] = [
+  {
+    id: "windsurf",
+    name: "Windsurf",
+    configKey: "mcpServers",
+    candidates: {
+      darwin: [path.join(homedir, ".codeium", "windsurf", "mcp_config.json")],
+      win32: [path.join(homedir, ".codeium", "windsurf", "mcp_config.json")],
+      linux: [path.join(homedir, ".codeium", "windsurf", "mcp_config.json")]
+    }
+  },
+  {
+    id: "vscode",
+    name: "VS Code",
+    configKey: "servers",
+    candidates: {
+      darwin: [path.join(homedir, "Library", "Application Support", "Code", "User", "mcp.json")],
+      win32: [path.join(process.env.APPDATA || homedir, "Code", "User", "mcp.json")],
+      linux: [path.join(homedir, ".config", "Code", "User", "mcp.json")]
+    }
+  },
+  {
+    id: "zed",
+    name: "Zed",
+    configKey: "context_servers",
+    candidates: {
+      darwin: [path.join(homedir, ".config", "zed", "settings.json")],
+      linux: [path.join(homedir, ".config", "zed", "settings.json")]
+    }
+  },
+  {
+    id: "continue",
+    name: "Continue",
+    configKey: "mcpServers",
+    candidates: {
+      darwin: [path.join(homedir, ".continue", "config.json")],
+      win32: [path.join(homedir, ".continue", "config.json")],
+      linux: [path.join(homedir, ".continue", "config.json")]
+    }
+  },
+  {
+    id: "cline",
+    name: "Cline",
+    configKey: "mcpServers",
+    candidates: {
+      darwin: [path.join(homedir, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")],
+      win32: [path.join(process.env.APPDATA || homedir, "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")],
+      linux: [path.join(homedir, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")]
+    }
+  },
+  {
+    id: "roo-code",
+    name: "Roo Code",
+    configKey: "mcpServers",
+    candidates: {
+      darwin: [path.join(homedir, "Library", "Application Support", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json")],
+      win32: [path.join(process.env.APPDATA || homedir, "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json")],
+      linux: [path.join(homedir, ".config", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json")]
+    }
+  },
+  {
+    id: "docker",
+    name: "Docker Desktop",
+    configKey: "mcpServers",
+    candidates: {
+      darwin: [path.join(homedir, ".docker", "mcp.json")],
+      win32: [path.join(homedir, ".docker", "mcp.json")],
+      linux: [path.join(homedir, ".docker", "mcp.json")]
+    }
+  }
+];
+
+// ---------- State ----------
+
 let themePreference: ThemeMode = "system";
 let lastAppliedAt: string | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+// Map from known/custom platform ID to its configKey (for sync)
+const platformConfigKeys = new Map<string, string>();
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -143,6 +237,10 @@ function getActivityLogPath(): string {
 
 function getSyncJournalPath(): string {
   return path.join(app.getPath("userData"), "sync-journal.jsonl");
+}
+
+function getCustomPlatformsPath(): string {
+  return path.join(app.getPath("userData"), "custom-platforms.json");
 }
 
 function cloneDefinition(definition: MCPServerDefinition): MCPServerDefinition {
@@ -271,6 +369,212 @@ async function readConfigWithRecovery(
         : "Config recovery succeeded."
   };
 }
+
+// ---------- Generic platform config read/write ----------
+
+function readServersFromGenericConfig(
+  parsed: Record<string, unknown>,
+  configKey: string
+): Record<string, MCPServerDefinition> {
+  const section = parsed[configKey];
+  if (!isRecord(section)) return {};
+
+  const servers: Record<string, MCPServerDefinition> = {};
+  for (const [name, rawDef] of Object.entries(section)) {
+    const def = sanitizeServerDefinition(rawDef);
+    if (def) servers[name] = def;
+  }
+  return servers;
+}
+
+async function readGenericPlatformServers(
+  configPath: string,
+  configKey: string
+): Promise<{ servers: Record<string, MCPServerDefinition>; error?: string }> {
+  try {
+    const raw = await readFile(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!isRecord(parsed)) return { servers: {}, error: "Config is not a JSON object." };
+    return { servers: readServersFromGenericConfig(parsed, configKey) };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unknown read error";
+    return { servers: {}, error: msg };
+  }
+}
+
+async function writeGenericPlatformServers(
+  configPath: string,
+  configKey: string,
+  servers: Record<string, MCPServerDefinition>
+): Promise<string> {
+  // Read existing file to preserve other keys
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (isRecord(parsed)) existing = parsed;
+  } catch {
+    // File doesn't exist or is invalid — start fresh
+  }
+
+  // Create backup before writing
+  const backupPath = `${configPath}.${timestampStamp()}.${randomUUID().slice(0, 8)}.bak`;
+  try {
+    await copyFile(configPath, backupPath);
+  } catch {
+    // No existing file to backup
+  }
+
+  // Merge servers into the appropriate key
+  existing[configKey] = servers;
+
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(configPath, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
+
+  return backupPath;
+}
+
+// ---------- Custom platforms storage ----------
+
+async function readCustomPlatforms(): Promise<CustomPlatformEntry[]> {
+  const filePath = getCustomPlatformsPath();
+  if (!(await fileExists(filePath))) return [];
+
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry): entry is CustomPlatformEntry =>
+        isRecord(entry) &&
+        typeof entry.id === "string" &&
+        typeof entry.name === "string" &&
+        typeof entry.configPath === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function writeCustomPlatforms(entries: CustomPlatformEntry[]): Promise<void> {
+  const filePath = getCustomPlatformsPath();
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(entries, null, 2)}\n`, "utf8");
+}
+
+function sanitizePlatformId(name: string): string {
+  const id = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return id.length > 0 ? `custom-${id}` : `custom-${randomUUID().slice(0, 8)}`;
+}
+
+async function addCustomPlatform(payload: CustomPlatformAddRequest): Promise<CustomPlatformEntry> {
+  const entries = await readCustomPlatforms();
+  const id = sanitizePlatformId(payload.name);
+
+  // Prevent duplicate IDs
+  const existingIndex = entries.findIndex((e) => e.id === id);
+  const entry: CustomPlatformEntry = {
+    id,
+    name: payload.name.trim(),
+    configPath: payload.configPath.trim()
+  };
+
+  if (existingIndex >= 0) {
+    entries[existingIndex] = entry;
+  } else {
+    entries.push(entry);
+  }
+
+  await writeCustomPlatforms(entries);
+
+  await appendActivityEntry({
+    type: "custom-platform-add",
+    title: "Custom platform added",
+    detail: `${entry.name} at ${entry.configPath}`
+  });
+
+  return entry;
+}
+
+async function removeCustomPlatform(payload: CustomPlatformRemoveRequest): Promise<void> {
+  const entries = await readCustomPlatforms();
+  const filtered = entries.filter((e) => e.id !== payload.id);
+  await writeCustomPlatforms(filtered);
+
+  const removed = entries.find((e) => e.id === payload.id);
+  await appendActivityEntry({
+    type: "custom-platform-remove",
+    title: "Custom platform removed",
+    detail: removed ? `${removed.name}` : payload.id
+  });
+}
+
+// ---------- Known platform discovery ----------
+
+async function discoverKnownPlatform(def: KnownPlatformDef): Promise<PlatformSnapshot> {
+  const osCandidates = def.candidates[process.platform] ?? [];
+
+  for (const candidatePath of osCandidates) {
+    if (await fileExists(candidatePath)) {
+      platformConfigKeys.set(def.id, def.configKey);
+      const result = await readGenericPlatformServers(candidatePath, def.configKey);
+      return {
+        platform: def.id,
+        displayName: def.name,
+        found: true,
+        configPath: candidatePath,
+        servers: result.servers,
+        error: result.error,
+        category: "known"
+      };
+    }
+  }
+
+  const fallbackPath = osCandidates[0] ?? "";
+  platformConfigKeys.set(def.id, def.configKey);
+  return {
+    platform: def.id,
+    displayName: def.name,
+    found: false,
+    configPath: fallbackPath,
+    servers: {},
+    category: "known"
+  };
+}
+
+async function buildCustomPlatformSnapshot(entry: CustomPlatformEntry): Promise<PlatformSnapshot> {
+  const found = await fileExists(entry.configPath);
+  platformConfigKeys.set(entry.id, "mcpServers");
+
+  if (!found) {
+    return {
+      platform: entry.id,
+      displayName: entry.name,
+      found: false,
+      configPath: entry.configPath,
+      servers: {},
+      category: "custom"
+    };
+  }
+
+  const result = await readGenericPlatformServers(entry.configPath, "mcpServers");
+  return {
+    platform: entry.id,
+    displayName: entry.name,
+    found: true,
+    configPath: entry.configPath,
+    servers: result.servers,
+    error: result.error,
+    category: "custom"
+  };
+}
+
+// ---------- Shared helpers ----------
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -565,7 +869,9 @@ function parseActivityEntry(rawLine: string): ActivityEntry | null {
       "settings-update",
       "platform-restart",
       "manual-backup",
-      "revision-revert"
+      "revision-revert",
+      "custom-platform-add",
+      "custom-platform-remove"
     ]);
     if (!validTypes.has(parsed.type)) {
       return null;
@@ -728,6 +1034,10 @@ function toPlatformName(platform: SupportedPlatform): PlatformName {
   return platform;
 }
 
+function isBuiltInPlatform(id: string): id is SupportedPlatform {
+  return (BUILT_IN_PLATFORMS as readonly string[]).includes(id);
+}
+
 function buildManagedPolicies(policies: SyncRequestPayload["policies"]): ManagedMcpPolicy[] {
   const managed: ManagedMcpPolicy[] = [];
 
@@ -745,7 +1055,7 @@ function buildManagedPolicies(policies: SyncRequestPayload["policies"]): Managed
       fallbackDefinition ??= safeDefinition;
       platformOverrides[platform] = {
         definition: safeDefinition,
-        enabled: policy.platformEnabled[platform]
+        enabled: policy.platformEnabled[platform] ?? false
       };
     }
 
@@ -810,6 +1120,15 @@ async function ensureConfigFilesForChanges(plan: SyncPlan): Promise<void> {
   }
 }
 
+function builtInDisplayName(platform: SupportedPlatform): string {
+  switch (platform) {
+    case "claude": return "Claude";
+    case "cursor": return "Cursor";
+    case "codex": return "Codex";
+    default: return platform;
+  }
+}
+
 async function buildPlatformSnapshot(
   platform: SupportedPlatform,
   userConfig: UserConfigResponse
@@ -821,54 +1140,175 @@ async function buildPlatformSnapshot(
   if (!merged.found) {
     return {
       platform,
+      displayName: builtInDisplayName(platform),
       found: false,
       configPath: configuredOverride ?? merged.configPath,
       servers: {},
       error: configuredOverride
         ? "Configured path does not exist yet. Apply sync to initialize this file."
-        : undefined
+        : undefined,
+      category: "builtin"
     };
   }
 
   return {
     platform,
+    displayName: builtInDisplayName(platform),
     found: true,
     configPath: configuredOverride ?? merged.configPath,
     servers: merged.config.mcpServers,
-    error: merged.warnings.length > 0 ? merged.warnings.join(" | ") : undefined
+    error: merged.warnings.length > 0 ? merged.warnings.join(" | ") : undefined,
+    category: "builtin"
   };
 }
 
 async function loadGatewayState(): Promise<GatewayStateResponse> {
   const userConfig = await readUserConfig();
-  const platforms = await Promise.all(
+
+  // Built-in platforms
+  const builtInSnapshots = await Promise.all(
     PLATFORM_ORDER.map((platform) => buildPlatformSnapshot(platform, userConfig))
   );
 
+  // Known platforms (auto-discovered)
+  const knownSnapshots = await Promise.all(
+    KNOWN_PLATFORMS.map((def) => discoverKnownPlatform(def))
+  );
+
+  // Custom platforms
+  const customEntries = await readCustomPlatforms();
+  const customSnapshots = await Promise.all(
+    customEntries.map((entry) => buildCustomPlatformSnapshot(entry))
+  );
+
   return {
-    platforms,
+    platforms: [...builtInSnapshots, ...knownSnapshots, ...customSnapshots],
     lastAppliedAt
   };
 }
 
-function createSyncPlanSummary(plan: SyncPlan): SyncPlanPreviewResponse {
-  return {
-    generatedAt: plan.generatedAt,
-    totalOperations: plan.totalOperations,
-    byPlatform: {
-      claude: {
-        hasChanges: plan.byPlatform.claude.hasChanges,
-        operationCount: plan.byPlatform.claude.operations.length
-      },
-      cursor: {
-        hasChanges: plan.byPlatform.cursor.hasChanges,
-        operationCount: plan.byPlatform.cursor.operations.length
-      },
-      codex: {
-        hasChanges: plan.byPlatform.codex.hasChanges,
-        operationCount: plan.byPlatform.codex.operations.length
+// ---------- Sync for additional (known + custom) platforms ----------
+
+interface AdditionalPlatformSyncResult {
+  platform: string;
+  configPath: string;
+  backupPath: string;
+  operationCount: number;
+}
+
+async function syncAdditionalPlatform(
+  platformId: string,
+  configPath: string,
+  policies: SyncRequestPayload["policies"]
+): Promise<AdditionalPlatformSyncResult | null> {
+  const configKey = platformConfigKeys.get(platformId) ?? "mcpServers";
+
+  // Read current servers
+  let existingServers: Record<string, MCPServerDefinition> = {};
+  try {
+    const result = await readGenericPlatformServers(configPath, configKey);
+    existingServers = result.servers;
+  } catch {
+    // Start with empty
+  }
+
+  // Build desired server state from policies
+  const desiredServers: Record<string, MCPServerDefinition> = {};
+  for (const policy of policies) {
+    const def = policy.platformDefinitions[platformId];
+    const enabled = policy.platformEnabled[platformId] ?? false;
+    if (def && enabled) {
+      desiredServers[policy.name] = cloneDefinition(def);
+    }
+  }
+
+  // Compute changes
+  let changeCount = 0;
+  const mergedServers = { ...existingServers };
+
+  // Add/update managed servers
+  for (const [name, def] of Object.entries(desiredServers)) {
+    const existing = mergedServers[name];
+    if (!existing || JSON.stringify(existing) !== JSON.stringify(def)) {
+      changeCount++;
+    }
+    mergedServers[name] = def;
+  }
+
+  // Remove servers that are in policies but disabled
+  for (const policy of policies) {
+    const enabled = policy.platformEnabled[platformId] ?? false;
+    if (!enabled && mergedServers[policy.name] !== undefined) {
+      // Only remove if this server was previously managed by a policy
+      if (policy.platformDefinitions[platformId]) {
+        delete mergedServers[policy.name];
+        changeCount++;
       }
     }
+  }
+
+  if (changeCount === 0) return null;
+
+  const backupPath = await writeGenericPlatformServers(configPath, configKey, mergedServers);
+
+  return {
+    platform: platformId,
+    configPath,
+    backupPath,
+    operationCount: changeCount
+  };
+}
+
+function previewAdditionalPlatform(
+  platformId: string,
+  configPath: string,
+  currentServers: Record<string, MCPServerDefinition>,
+  policies: SyncRequestPayload["policies"]
+): PlatformPlanSummary {
+  let changeCount = 0;
+
+  for (const policy of policies) {
+    const def = policy.platformDefinitions[platformId];
+    const enabled = policy.platformEnabled[platformId] ?? false;
+    const existing = currentServers[policy.name];
+
+    if (def && enabled) {
+      if (!existing || JSON.stringify(existing) !== JSON.stringify(def)) {
+        changeCount++;
+      }
+    } else if (policy.platformDefinitions[platformId] && existing) {
+      changeCount++;
+    }
+  }
+
+  return { hasChanges: changeCount > 0, operationCount: changeCount };
+}
+
+// ---------- Built-in sync plan helpers ----------
+
+function createSyncPlanSummary(
+  plan: SyncPlan,
+  additionalPreviews: Record<string, PlatformPlanSummary>
+): SyncPlanPreviewResponse {
+  const byPlatform: Record<string, PlatformPlanSummary> = {};
+  let totalOps = plan.totalOperations;
+
+  for (const p of PLATFORM_ORDER) {
+    byPlatform[p] = {
+      hasChanges: plan.byPlatform[p].hasChanges,
+      operationCount: plan.byPlatform[p].operations.length
+    };
+  }
+
+  for (const [platformId, summary] of Object.entries(additionalPreviews)) {
+    byPlatform[platformId] = summary;
+    totalOps += summary.operationCount;
+  }
+
+  return {
+    generatedAt: plan.generatedAt,
+    totalOperations: totalOps,
+    byPlatform
   };
 }
 
@@ -1020,10 +1460,6 @@ function parseSyncJournalEntry(rawLine: string): RevisionEntry | null {
       return null;
     }
 
-    if (!PLATFORM_ORDER.includes(parsed.platform as SupportedPlatform)) {
-      return null;
-    }
-
     const revisionId =
       typeof parsed.revisionId === "string" && parsed.revisionId.trim().length > 0
         ? parsed.revisionId
@@ -1032,7 +1468,7 @@ function parseSyncJournalEntry(rawLine: string): RevisionEntry | null {
     return {
       revisionId,
       timestamp: parsed.timestamp,
-      platform: parsed.platform as SupportedPlatform,
+      platform: parsed.platform,
       configPath: parsed.configPath,
       backupPath: parsed.backupPath,
       operationCount: parsed.operationCount
@@ -1090,11 +1526,6 @@ async function readRevisionHistory(limit: number = 50): Promise<RevisionHistoryR
   }
 
   const revisions = [...grouped.values()]
-    .map((revision) => ({
-      ...revision,
-      platforms: PLATFORM_ORDER.filter((platform) => revision.platforms.includes(platform)),
-      entries: revision.entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-    }))
     .sort((a, b) => b.appliedAt.localeCompare(a.appliedAt))
     .slice(0, limit);
 
@@ -1109,11 +1540,8 @@ async function createManualBackup(payload: ManualBackupRequest): Promise<ManualB
   const createdAt = new Date().toISOString();
   const entries: ManualBackupEntry[] = [];
 
-  for (const platform of PLATFORM_ORDER) {
-    const rawPath = payload.platformConfigPaths[platform];
-    if (typeof rawPath !== "string") {
-      continue;
-    }
+  for (const [platform, rawPath] of Object.entries(payload.platformConfigPaths)) {
+    if (typeof rawPath !== "string") continue;
 
     const configPath = rawPath.trim();
     if (configPath.length === 0 || !(await fileExists(configPath))) {
@@ -1331,15 +1759,27 @@ function registerIpcHandlers(): void {
       const normalizedPaths = normalizeConfigPaths(payload.platformConfigPaths, userConfig);
       const currentState = await readConfigState(normalizedPaths);
       const plan = createPlanFromPayload(
-        {
-          ...payload,
-          platformConfigPaths: normalizedPaths
-        },
+        { ...payload, platformConfigPaths: normalizedPaths },
         currentState,
         normalizedPaths
       );
 
-      return createSyncPlanSummary(plan);
+      // Preview additional platforms
+      const additionalPreviews: Record<string, PlatformPlanSummary> = {};
+      const state = await loadGatewayState();
+      for (const snap of state.platforms) {
+        if (isBuiltInPlatform(snap.platform)) continue;
+        const configPath = payload.platformConfigPaths[snap.platform] ?? snap.configPath;
+        if (!configPath) continue;
+        additionalPreviews[snap.platform] = previewAdditionalPlatform(
+          snap.platform,
+          configPath,
+          snap.servers,
+          payload.policies
+        );
+      }
+
+      return createSyncPlanSummary(plan, additionalPreviews);
     }
   );
 
@@ -1350,10 +1790,7 @@ function registerIpcHandlers(): void {
       const normalizedPaths = normalizeConfigPaths(payload.platformConfigPaths, userConfig);
       const currentState = await readConfigState(normalizedPaths);
       const plan = createPlanFromPayload(
-        {
-          ...payload,
-          platformConfigPaths: normalizedPaths
-        },
+        { ...payload, platformConfigPaths: normalizedPaths },
         currentState,
         normalizedPaths
       );
@@ -1364,23 +1801,53 @@ function registerIpcHandlers(): void {
         journalPath: getSyncJournalPath()
       });
 
+      // Apply to additional platforms
+      const additionalOps: ApplySyncResponse["operations"] = [];
+      const state = await loadGatewayState();
+      for (const snap of state.platforms) {
+        if (isBuiltInPlatform(snap.platform)) continue;
+        const configPath = payload.platformConfigPaths[snap.platform] ?? snap.configPath;
+        if (!configPath) continue;
+
+        const syncResult = await syncAdditionalPlatform(snap.platform, configPath, payload.policies);
+        if (syncResult) {
+          additionalOps.push(syncResult);
+
+          // Journal the additional platform sync
+          const journalEntry = {
+            revisionId: result.revisionId,
+            timestamp: new Date().toISOString(),
+            platform: syncResult.platform,
+            configPath: syncResult.configPath,
+            backupPath: syncResult.backupPath,
+            operationCount: syncResult.operationCount
+          };
+          await appendFile(getSyncJournalPath(), `${JSON.stringify(journalEntry)}\n`, "utf8");
+        }
+      }
+
       lastAppliedAt = result.appliedAt;
+
+      const allOps = [
+        ...result.operations.map((operation) => ({
+          platform: operation.platform,
+          configPath: operation.configPath,
+          backupPath: operation.backupPath,
+          operationCount: operation.operationCount
+        })),
+        ...additionalOps
+      ];
 
       await appendActivityEntry({
         type: "sync-apply",
         title: "Sync applied",
-        detail: `Applied ${result.operations.length} platform update(s). Revision: ${result.revisionId}.`
+        detail: `Applied ${allOps.length} platform update(s). Revision: ${result.revisionId}.`
       });
 
       return {
         appliedAt: result.appliedAt,
         revisionId: result.revisionId,
-        operations: result.operations.map((operation) => ({
-          platform: operation.platform,
-          configPath: operation.configPath,
-          backupPath: operation.backupPath,
-          operationCount: operation.operationCount
-        }))
+        operations: allOps
       };
     }
   );
@@ -1426,6 +1893,27 @@ function registerIpcHandlers(): void {
     IPCChannels.modelDownload,
     async (): Promise<ModelStatusResponse> => {
       return doDownloadModel();
+    }
+  );
+
+  // Custom platform CRUD
+  ipcMain.handle(
+    IPCChannels.customPlatformAdd,
+    async (_event, payload: CustomPlatformAddRequest): Promise<CustomPlatformEntry> => {
+      if (!payload || !payload.name?.trim() || !payload.configPath?.trim()) {
+        throw new Error("Custom platform requires a name and config path.");
+      }
+      return addCustomPlatform(payload);
+    }
+  );
+
+  ipcMain.handle(
+    IPCChannels.customPlatformRemove,
+    async (_event, payload: CustomPlatformRemoveRequest): Promise<void> => {
+      if (!payload || !payload.id?.trim()) {
+        throw new Error("Custom platform removal requires an id.");
+      }
+      return removeCustomPlatform(payload);
     }
   );
 }

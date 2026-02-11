@@ -2,9 +2,9 @@
 
 ![MCP Gateway Manager logo](./logo.png)
 
-**One app to manage all your MCP servers across Claude, Cursor, and Codex.**
+**One app to manage all your MCP servers across every AI platform.**
 
-Version: **2.0.0**
+Version: **2.1.0**
 License: **MIT**
 
 ---
@@ -15,7 +15,14 @@ Every AI coding tool has its own MCP config file in a different location with a 
 
 **One matrix. All platforms. Instant sync.**
 
-## What's new in v2
+## What's new in v2.1
+
+- **10 platforms supported** — Claude, Cursor, Codex (built-in) plus Windsurf, VS Code, Zed, Continue, Cline, Roo Code, and Docker Desktop (auto-discovered).
+- **Auto-discovery** — On launch, the app scans your machine for known platform config files and adds them to the matrix automatically.
+- **Custom platforms** — Point to any application's MCP JSON config file and give it a name. It joins the sync matrix instantly.
+- **Dynamic matrix** — The server grid, platform toggles, sync preview, and status bar all adapt to however many platforms you have.
+
+### What shipped in v2.0
 
 - **Local AI model** — A built-in Qwen 2.5 1.5B model analyzes MCP packages and auto-fills configuration. Runs entirely on your machine. No API keys, no cloud, completely free.
 - **Smart + Manual modes** — Paste a URL for AI-assisted setup, or fill in the config manually if you know what you're doing.
@@ -28,7 +35,9 @@ Every AI coding tool has its own MCP config file in a different location with a 
 
 | Feature | Description |
 |---------|-------------|
-| **Unified Matrix** | Add MCP servers once, sync to Claude, Cursor, and Codex simultaneously |
+| **Unified Matrix** | Add MCP servers once, sync to all platforms simultaneously |
+| **Auto-Discovery** | Windsurf, VS Code, Zed, Continue, Cline, Roo Code, Docker Desktop detected automatically |
+| **Custom Platforms** | Add any app that uses a JSON MCP config — name it, point to the file, done |
 | **Smart Analysis** | Paste a URL or npm package — AI reads the docs and pre-fills command, args, and env vars |
 | **Manual Config** | Power users can fill in server configs directly without AI |
 | **Preview & Apply** | See exactly what changes will be written before applying them |
@@ -36,7 +45,7 @@ Every AI coding tool has its own MCP config file in a different location with a 
 | **Per-Platform Control** | Enable/disable servers globally or per platform |
 | **Activity Timeline** | Full history of syncs, reverts, analyses, and config changes |
 | **Local AI Model** | ~900 MB download, Apache 2.0 license, runs offline via node-llama-cpp |
-| **Platform Restart** | Restart Claude/Cursor from the app after syncing (Codex excluded to protect active sessions) |
+| **Platform Restart** | Restart Claude/Cursor from the app after syncing |
 
 ## Screenshots
 
@@ -48,7 +57,7 @@ Every AI coding tool has its own MCP config file in a different location with a 
 apps/
   desktop-v2/          # Electron + React + TypeScript (v2 — current)
     electron/
-      main.ts          # Main process — IPC handlers, window management
+      main.ts          # Main process — IPC handlers, platform registry, sync
       preload.ts       # Context bridge — typed API for renderer
       local-llm.ts     # Two-layer MCP analysis (heuristic + AI)
       model-manager.ts # Model lifecycle — download, load, prompt
@@ -132,7 +141,8 @@ open -a "MCP Gateway Manager"
 2. Paste a URL, npm package name, or GitHub repo
 3. Click **Analyze** — the system parses the URL and (if AI model is downloaded) extracts the config
 4. Review the pre-filled name, command, arguments, and env vars
-5. Click **Add to Matrix**
+5. Select target platforms (all or specific)
+6. Click **Add to Matrix**
 
 ### Adding an MCP server (Manual mode)
 
@@ -144,8 +154,15 @@ open -a "MCP Gateway Manager"
 ### Syncing to platforms
 
 1. Click **Preview** to see what changes will be written to each platform
-2. Review the diff
+2. Review the operation count per platform
 3. Click **Apply Sync** — configs are written, backups are created automatically
+
+### Adding a custom platform
+
+1. Go to **Settings** > **Custom Platforms**
+2. Enter a name for the application (e.g. "My IDE")
+3. Enter or browse to the JSON config file path
+4. Click **Add** — the platform appears in the matrix immediately
 
 ### AI Model
 
@@ -158,6 +175,36 @@ The local AI model is optional but recommended. It runs entirely on your machine
 - **Download:** Settings > AI Model > Download
 
 The model uses grammar-constrained output (GBNF JSON schema) to guarantee valid structured responses. Without it, Smart mode falls back to URL pattern matching.
+
+## Supported platforms
+
+### Built-in (dedicated adapters)
+
+| Platform | Config location | Restart support |
+|----------|----------------|-----------------|
+| **Claude** | `~/.claude/claude_desktop_config.json` | Yes |
+| **Cursor** | `~/.cursor/mcp.json` | Yes |
+| **Codex** | `~/.codex/config.json` | No (protects active sessions) |
+
+### Auto-discovered (detected on launch)
+
+| Platform | Config location (macOS) | Config key |
+|----------|------------------------|------------|
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` |
+| **VS Code** | `~/Library/Application Support/Code/User/mcp.json` | `servers` |
+| **Zed** | `~/.config/zed/settings.json` | `context_servers` |
+| **Continue** | `~/.continue/config.json` | `mcpServers` |
+| **Cline** | `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` | `mcpServers` |
+| **Roo Code** | `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` | `mcpServers` |
+| **Docker Desktop** | `~/.docker/mcp.json` | `mcpServers` |
+
+Windows and Linux paths are also supported — the app checks OS-specific candidates automatically.
+
+### Custom platforms
+
+Any application that stores MCP servers in a JSON config file can be added via **Settings > Custom Platforms**. Provide a name and the config file path. The app reads and writes the `mcpServers` key by default, preserving all other content in the file.
+
+Config paths for built-in platforms can be overridden in Settings > Platform Config Paths.
 
 ## Tech stack
 
@@ -195,16 +242,6 @@ pnpm dist:mac         # Build + package macOS DMG
 pnpm dist:win         # Build + package Windows installer
 pnpm dist             # Build + package for current platform
 ```
-
-## Supported platforms
-
-| Platform | Config location | Restart support |
-|----------|----------------|-----------------|
-| **Claude** | `~/.claude/claude_desktop_config.json` | Yes |
-| **Cursor** | `~/.cursor/mcp.json` | Yes |
-| **Codex** | `~/.codex/config.json` | No (protects active sessions) |
-
-Config paths can be overridden in Settings > Platform Config Paths.
 
 ## Logo & app icon
 

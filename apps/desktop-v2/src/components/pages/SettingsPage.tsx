@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ThemeMode } from "@mcp-gateway/domain";
 import type {
+  GatewayStateResponse,
   ModelStatusResponse,
+  PlatformSnapshot,
   SupportedPlatform,
   UserConfigResponse
 } from "@mcp-gateway/ipc-contracts";
@@ -25,9 +27,11 @@ function formatBytes(bytes: number): string {
 interface SettingsPageProps {
   theme: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
+  state: GatewayStateResponse | null;
+  onRefresh: () => void;
 }
 
-export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
+export function SettingsPage({ theme, onThemeChange, state, onRefresh }: SettingsPageProps) {
   const [config, setConfig] = useState<UserConfigResponse | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -35,6 +39,18 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
   // AI model state
   const [modelStatus, setModelStatus] = useState<ModelStatusResponse | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Custom platform form
+  const [customName, setCustomName] = useState("");
+  const [customPath, setCustomPath] = useState("");
+  const [addingCustom, setAddingCustom] = useState(false);
+  const [customError, setCustomError] = useState("");
+
+  // Derived platform lists
+  const knownPlatforms: PlatformSnapshot[] =
+    state?.platforms.filter((s) => s.category === "known") ?? [];
+  const customPlatforms: PlatformSnapshot[] =
+    state?.platforms.filter((s) => s.category === "custom") ?? [];
 
   // Fetch initial state
   const refreshModelStatus = useCallback(async () => {
@@ -52,12 +68,11 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
     refreshModelStatus();
   }, [refreshModelStatus]);
 
-  // Poll while downloading — start/stop based on modelStatus.downloading
+  // Poll while downloading
   useEffect(() => {
     if (modelStatus?.downloading && !pollRef.current) {
       pollRef.current = setInterval(async () => {
         const status = await refreshModelStatus();
-        // Stop polling once download finishes
         if (status && !status.downloading) {
           if (pollRef.current) {
             clearInterval(pollRef.current);
@@ -121,10 +136,49 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
     }
   }
 
+  async function handlePickCustomPath() {
+    try {
+      const result = await window.mcpGateway.pickConfigFilePath({});
+      if (result.path) {
+        setCustomPath(result.path);
+      }
+    } catch {
+      // Handle error
+    }
+  }
+
+  async function handleAddCustomPlatform() {
+    if (!customName.trim() || !customPath.trim()) return;
+    setAddingCustom(true);
+    setCustomError("");
+
+    try {
+      await window.mcpGateway.addCustomPlatform({
+        name: customName.trim(),
+        configPath: customPath.trim()
+      });
+      setCustomName("");
+      setCustomPath("");
+      onRefresh();
+    } catch (err) {
+      setCustomError(err instanceof Error ? err.message : "Failed to add platform.");
+    } finally {
+      setAddingCustom(false);
+    }
+  }
+
+  async function handleRemoveCustomPlatform(platformId: string) {
+    try {
+      await window.mcpGateway.removeCustomPlatform({ id: platformId });
+      onRefresh();
+    } catch {
+      // Handle error
+    }
+  }
+
   async function handleDownloadModel() {
     const status = await window.mcpGateway.downloadModel();
     setModelStatus(status);
-    // Polling will automatically start via the useEffect above
   }
 
   const themes: ThemeMode[] = ["light", "dark", "system"];
@@ -210,6 +264,185 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
                 </div>
               );
             })}
+        </section>
+
+        {/* Discovered Platforms */}
+        {knownPlatforms.length > 0 && (
+          <section className="section">
+            <h3 className="section-title">Discovered Platforms</h3>
+            <p style={{ fontSize: "var(--text-sm)", color: "var(--text-muted)", marginBottom: "var(--space-3)" }}>
+              These platforms were automatically detected on your machine.
+            </p>
+            {knownPlatforms.map((snap) => (
+              <div
+                key={snap.platform}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-3)",
+                  padding: "var(--space-2) 0",
+                  borderBottom: "1px solid var(--border)"
+                }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: snap.found ? "var(--success)" : "var(--text-muted)",
+                    flexShrink: 0
+                  }}
+                />
+                <span style={{ width: 100, fontSize: "var(--text-sm)", fontWeight: 500 }}>
+                  {snap.displayName}
+                </span>
+                <code
+                  style={{
+                    flex: 1,
+                    fontSize: "var(--text-sm)",
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--text-secondary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}
+                  className="selectable"
+                >
+                  {snap.configPath || "Not found"}
+                </code>
+                <span
+                  style={{
+                    fontSize: "var(--text-xs)",
+                    color: snap.found ? "var(--success)" : "var(--text-muted)"
+                  }}
+                >
+                  {snap.found ? `${Object.keys(snap.servers).length} servers` : "—"}
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* Custom Platforms */}
+        <section className="section">
+          <h3 className="section-title">Custom Platforms</h3>
+          <p style={{ fontSize: "var(--text-sm)", color: "var(--text-muted)", marginBottom: "var(--space-3)" }}>
+            Add any application that stores MCP servers in a JSON config file.
+          </p>
+
+          {/* Existing custom platforms */}
+          {customPlatforms.map((snap) => (
+            <div
+              key={snap.platform}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-3)",
+                padding: "var(--space-2) 0",
+                borderBottom: "1px solid var(--border)"
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: snap.found ? "var(--success)" : "var(--text-muted)",
+                  flexShrink: 0
+                }}
+              />
+              <span style={{ fontSize: "var(--text-sm)", fontWeight: 500, minWidth: 80 }}>
+                {snap.displayName}
+              </span>
+              <code
+                style={{
+                  flex: 1,
+                  fontSize: "var(--text-sm)",
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text-secondary)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap"
+                }}
+                className="selectable"
+              >
+                {snap.configPath}
+              </code>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleRemoveCustomPlatform(snap.platform)}
+              >
+                Remove
+              </Button>
+            </div>
+          ))}
+
+          {/* Add new custom platform */}
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              marginTop: "var(--space-3)",
+              alignItems: "flex-end"
+            }}
+          >
+            <div style={{ flex: "0 0 160px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "var(--text-xs)",
+                  color: "var(--text-muted)",
+                  marginBottom: "var(--space-1)"
+                }}
+              >
+                Platform name
+              </label>
+              <input
+                className="input input-mono"
+                placeholder="e.g. My IDE"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "var(--text-xs)",
+                  color: "var(--text-muted)",
+                  marginBottom: "var(--space-1)"
+                }}
+              >
+                Config file path
+              </label>
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <input
+                  className="input input-mono"
+                  placeholder="/path/to/mcp-config.json"
+                  value={customPath}
+                  onChange={(e) => setCustomPath(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <Button size="sm" variant="ghost" onClick={handlePickCustomPath}>
+                  Browse
+                </Button>
+              </div>
+            </div>
+            <Button
+              onClick={handleAddCustomPlatform}
+              disabled={addingCustom || !customName.trim() || !customPath.trim()}
+            >
+              {addingCustom ? "Adding..." : "Add"}
+            </Button>
+          </div>
+
+          {customError && (
+            <p style={{ fontSize: "var(--text-sm)", color: "var(--error)", marginTop: "var(--space-2)" }}>
+              {customError}
+            </p>
+          )}
         </section>
 
         {/* AI Model */}

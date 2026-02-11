@@ -2,19 +2,18 @@ import { useState } from "react";
 
 import type {
   GatewayStateResponse,
-  MatrixPolicyInput,
-  SupportedPlatform
+  MatrixPolicyInput
 } from "@mcp-gateway/ipc-contracts";
 
 import { Badge, Button, EmptyState } from "@/components/shared";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
   addPolicyDefinitionForPlatform,
+  getAllPlatformIds,
   hasPlatformDefinition,
   isPolicySharedAcrossPlatforms,
   removePolicyDefinitionForPlatform,
-  sharePolicyAcrossAllPlatforms,
-  SUPPORTED_PLATFORMS
+  sharePolicyAcrossAllPlatforms
 } from "@/lib/matrix";
 
 interface ServersPageProps {
@@ -26,15 +25,6 @@ interface ServersPageProps {
   onRefresh: () => void;
 }
 
-function platformLabel(p: SupportedPlatform): string {
-  return p.charAt(0).toUpperCase() + p.slice(1);
-}
-
-function countServers(state: GatewayStateResponse, platform: SupportedPlatform): number {
-  const snap = state.platforms.find((s) => s.platform === platform);
-  return snap ? Object.keys(snap.servers).length : 0;
-}
-
 export function ServersPage({
   state,
   policies,
@@ -44,8 +34,9 @@ export function ServersPage({
   onRefresh
 }: ServersPageProps) {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const allPlatformIds = state ? getAllPlatformIds(state) : [];
 
-  function handleTogglePlatform(policyName: string, platform: SupportedPlatform) {
+  function handleTogglePlatform(policyName: string, platform: string) {
     onPoliciesChange(
       policies.flatMap((p) => {
         if (p.name !== policyName) return [p];
@@ -53,7 +44,7 @@ export function ServersPage({
           const result = removePolicyDefinitionForPlatform(p, platform);
           return result ? [result] : [];
         } else {
-          return [addPolicyDefinitionForPlatform(p, platform)];
+          return [addPolicyDefinitionForPlatform(p, platform, allPlatformIds)];
         }
       })
     );
@@ -61,7 +52,9 @@ export function ServersPage({
 
   function handleShareAll(policyName: string) {
     onPoliciesChange(
-      policies.map((p) => (p.name === policyName ? sharePolicyAcrossAllPlatforms(p) : p))
+      policies.map((p) =>
+        p.name === policyName ? sharePolicyAcrossAllPlatforms(p, allPlatformIds) : p
+      )
     );
   }
 
@@ -83,27 +76,45 @@ export function ServersPage({
       <div className="main-content">
         {/* Platform summary strip */}
         {state && (
-          <div style={{ display: "flex", gap: "var(--space-3)" }}>
-            {SUPPORTED_PLATFORMS.map((p) => {
-              const snap = state.platforms.find((s) => s.platform === p);
-              return (
-                <div key={p} className="card card-compact" style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                    <Badge dot variant={snap?.found ? "success" : "muted"} />
-                    <span style={{ fontWeight: 500 }}>{platformLabel(p)}</span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "var(--text-xs)",
-                      color: "var(--text-muted)",
-                      marginTop: "var(--space-1)"
-                    }}
-                  >
-                    {snap?.found ? `${countServers(state, p)} servers` : "Not configured"}
-                  </div>
+          <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+            {state.platforms.map((snap) => (
+              <div
+                key={snap.platform}
+                className="card card-compact"
+                style={{ flex: "1 1 140px", minWidth: 140, maxWidth: 220 }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                  <Badge dot variant={snap.found ? "success" : "muted"} />
+                  <span style={{ fontWeight: 500, fontSize: "var(--text-sm)" }}>
+                    {snap.displayName}
+                  </span>
+                  {snap.category !== "builtin" && (
+                    <span
+                      style={{
+                        fontSize: "var(--text-xs)",
+                        color: "var(--text-muted)",
+                        padding: "0 var(--space-1)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--radius-sm)"
+                      }}
+                    >
+                      {snap.category}
+                    </span>
+                  )}
                 </div>
-              );
-            })}
+                <div
+                  style={{
+                    fontSize: "var(--text-xs)",
+                    color: "var(--text-muted)",
+                    marginTop: "var(--space-1)"
+                  }}
+                >
+                  {snap.found
+                    ? `${Object.keys(snap.servers).length} servers`
+                    : "Not configured"}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -125,9 +136,9 @@ export function ServersPage({
               <thead>
                 <tr>
                   <th>Server</th>
-                  {SUPPORTED_PLATFORMS.map((p) => (
-                    <th key={p} className="col-center">
-                      {platformLabel(p)}
+                  {state?.platforms.map((snap) => (
+                    <th key={snap.platform} className="col-center">
+                      {snap.displayName}
                     </th>
                   ))}
                   <th>Status</th>
@@ -147,7 +158,8 @@ export function ServersPage({
                       style={{ cursor: "pointer" }}
                     >
                       <td className="table-cell-mono">{policy.name}</td>
-                      {SUPPORTED_PLATFORMS.map((p) => {
+                      {state?.platforms.map((snap) => {
+                        const p = snap.platform;
                         const hasDef = hasPlatformDefinition(policy, p);
                         const enabled = hasDef && policy.platformEnabled[p];
                         return (
@@ -159,7 +171,7 @@ export function ServersPage({
                                   e.stopPropagation();
                                   handleTogglePlatform(policy.name, p);
                                 }}
-                                title={`${enabled ? "Remove from" : "Add to"} ${platformLabel(p)}`}
+                                title={`${enabled ? "Remove from" : "Add to"} ${snap.displayName}`}
                                 style={{
                                   background: "none",
                                   border: "none",
@@ -176,7 +188,7 @@ export function ServersPage({
                                   e.stopPropagation();
                                   handleTogglePlatform(policy.name, p);
                                 }}
-                                title={`Add to ${platformLabel(p)}`}
+                                title={`Add to ${snap.displayName}`}
                                 style={{
                                   background: "none",
                                   border: "none",

@@ -5,20 +5,15 @@ import type {
   GatewayStateResponse,
   MatrixPolicyInput,
   ModelStatusResponse,
-  SupportedPlatform,
   SyncPlanPreviewResponse
 } from "@mcp-gateway/ipc-contracts";
 
 import { Button, EmptyState, Input, Toggle } from "@/components/shared";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { buildPolicyFromAssistantInput } from "@/lib/assistant";
-import { buildSyncRequestPayload, SUPPORTED_PLATFORMS } from "@/lib/matrix";
+import { buildSyncRequestPayload, getAllPlatformIds } from "@/lib/matrix";
 
 type AddMode = "smart" | "manual";
-
-function platformLabel(p: SupportedPlatform): string {
-  return p.charAt(0).toUpperCase() + p.slice(1);
-}
 
 interface SyncPageProps {
   state: GatewayStateResponse | null;
@@ -34,17 +29,15 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
   const [analyzeError, setAnalyzeError] = useState("");
   const [modelStatus, setModelStatus] = useState<ModelStatusResponse | null>(null);
 
+  const allPlatformIds = state ? getAllPlatformIds(state) : [];
+
   // Manual mode state
   const [manualName, setManualName] = useState("");
   const [manualCommand, setManualCommand] = useState("");
   const [manualArgs, setManualArgs] = useState("");
   const [manualEnabled, setManualEnabled] = useState(true);
   const [manualScope, setManualScope] = useState<"all" | "selected">("all");
-  const [manualPlatforms, setManualPlatforms] = useState<Record<SupportedPlatform, boolean>>({
-    claude: true,
-    cursor: true,
-    codex: true
-  });
+  const [manualPlatforms, setManualPlatforms] = useState<Record<string, boolean>>({});
 
   // Assistant form state
   const [mcpName, setMcpName] = useState("");
@@ -52,11 +45,7 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
   const [mcpArgs, setMcpArgs] = useState("");
   const [mcpEnabled, setMcpEnabled] = useState(true);
   const [mcpScope, setMcpScope] = useState<"all" | "selected">("all");
-  const [mcpPlatforms, setMcpPlatforms] = useState<Record<SupportedPlatform, boolean>>({
-    claude: true,
-    cursor: true,
-    codex: true
-  });
+  const [mcpPlatforms, setMcpPlatforms] = useState<Record<string, boolean>>({});
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
 
   // Sync state
@@ -65,6 +54,17 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
   const [applying, setApplying] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [syncSuccess, setSyncSuccess] = useState("");
+
+  // Initialize platform toggles when state loads
+  useEffect(() => {
+    if (!state) return;
+    const allOn: Record<string, boolean> = {};
+    for (const snap of state.platforms) {
+      allOn[snap.platform] = true;
+    }
+    setManualPlatforms(allOn);
+    setMcpPlatforms(allOn);
+  }, [state]);
 
   async function handleAnalyze() {
     if (!urlInput.trim()) return;
@@ -105,7 +105,8 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
       enabled: manualEnabled,
       envValues: {},
       scope: manualScope,
-      selectedPlatforms: manualPlatforms
+      selectedPlatforms: manualPlatforms,
+      allPlatformIds
     });
     onPoliciesChange([...policies, newPolicy]);
     setManualName("");
@@ -121,7 +122,8 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
       enabled: mcpEnabled,
       envValues,
       scope: mcpScope,
-      selectedPlatforms: mcpPlatforms
+      selectedPlatforms: mcpPlatforms,
+      allPlatformIds
     });
     onPoliciesChange([...policies, newPolicy]);
     setSuggestion(null);
@@ -281,14 +283,14 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
                     </div>
                   </div>
 
-                  {mcpScope === "selected" && (
-                    <div style={{ display: "flex", gap: "var(--space-4)" }}>
-                      {SUPPORTED_PLATFORMS.map((p) => (
+                  {mcpScope === "selected" && state && (
+                    <div style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap" }}>
+                      {state.platforms.map((snap) => (
                         <Toggle
-                          key={p}
-                          checked={mcpPlatforms[p]}
-                          onChange={(v) => setMcpPlatforms({ ...mcpPlatforms, [p]: v })}
-                          label={platformLabel(p)}
+                          key={snap.platform}
+                          checked={mcpPlatforms[snap.platform] ?? false}
+                          onChange={(v) => setMcpPlatforms({ ...mcpPlatforms, [snap.platform]: v })}
+                          label={snap.displayName}
                         />
                       ))}
                     </div>
@@ -367,14 +369,14 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
                 </div>
               </div>
 
-              {manualScope === "selected" && (
-                <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-3)" }}>
-                  {SUPPORTED_PLATFORMS.map((p) => (
+              {manualScope === "selected" && state && (
+                <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-3)", flexWrap: "wrap" }}>
+                  {state.platforms.map((snap) => (
                     <Toggle
-                      key={p}
-                      checked={manualPlatforms[p]}
-                      onChange={(v) => setManualPlatforms({ ...manualPlatforms, [p]: v })}
-                      label={platformLabel(p)}
+                      key={snap.platform}
+                      checked={manualPlatforms[snap.platform] ?? false}
+                      onChange={(v) => setManualPlatforms({ ...manualPlatforms, [snap.platform]: v })}
+                      label={snap.displayName}
                     />
                   ))}
                 </div>
@@ -414,11 +416,11 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
                 {preview.totalOperations} operation{preview.totalOperations !== 1 ? "s" : ""} across{" "}
                 {Object.values(preview.byPlatform).filter((p) => p.hasChanges).length} platform(s)
               </p>
-              {SUPPORTED_PLATFORMS.map((p) => {
-                const plan = preview.byPlatform[p];
+              {Object.entries(preview.byPlatform).map(([platformId, plan]) => {
+                const snap = state?.platforms.find((s) => s.platform === platformId);
                 return (
                   <div
-                    key={p}
+                    key={platformId}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -428,7 +430,7 @@ export function SyncPage({ state, policies, onPoliciesChange }: SyncPageProps) {
                       fontSize: "var(--text-sm)"
                     }}
                   >
-                    <span style={{ fontWeight: 500 }}>{platformLabel(p)}</span>
+                    <span style={{ fontWeight: 500 }}>{snap?.displayName ?? platformId}</span>
                     <span style={{ color: plan.hasChanges ? "var(--text-primary)" : "var(--text-muted)" }}>
                       {plan.hasChanges ? `${plan.operationCount} change(s)` : "No changes"}
                     </span>

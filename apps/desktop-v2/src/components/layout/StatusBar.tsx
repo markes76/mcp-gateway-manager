@@ -1,9 +1,8 @@
-import type { SupportedPlatform } from "@mcp-gateway/ipc-contracts";
-
 import { Badge } from "@/components/shared";
 
 interface PlatformHealth {
-  platform: SupportedPlatform;
+  platform: string;
+  displayName?: string;
   found: boolean;
   configPath: string;
 }
@@ -13,7 +12,7 @@ interface StatusBarProps {
   lastSyncedAt: string | null;
 }
 
-function platformLabel(p: SupportedPlatform): string {
+function platformLabel(p: string): string {
   return p.charAt(0).toUpperCase() + p.slice(1);
 }
 
@@ -33,7 +32,7 @@ export function StatusBar({ platforms, lastSyncedAt }: StatusBarProps) {
       {platforms.map((p) => (
         <span key={p.platform} className="statusbar-platform" title={p.configPath || "Not found"}>
           <Badge dot variant={p.found ? "success" : "muted"} />
-          <span>{platformLabel(p.platform)}</span>
+          <span>{p.displayName ?? platformLabel(p.platform)}</span>
         </span>
       ))}
 

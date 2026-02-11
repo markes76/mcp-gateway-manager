@@ -7,6 +7,9 @@ import {
   type ActivityLogResponse,
   IPCChannels,
   type ApplySyncResponse,
+  type CustomPlatformAddRequest,
+  type CustomPlatformEntry,
+  type CustomPlatformRemoveRequest,
   type GatewayStateResponse,
   type GatewayApi,
   type HealthCheckResponse,
@@ -70,7 +73,11 @@ const gatewayApi: GatewayApi = {
   getModelStatus: async (): Promise<ModelStatusResponse> =>
     ipcRenderer.invoke(IPCChannels.modelGetStatus),
   downloadModel: async (): Promise<ModelStatusResponse> =>
-    ipcRenderer.invoke(IPCChannels.modelDownload)
+    ipcRenderer.invoke(IPCChannels.modelDownload),
+  addCustomPlatform: async (payload: CustomPlatformAddRequest): Promise<CustomPlatformEntry> =>
+    ipcRenderer.invoke(IPCChannels.customPlatformAdd, payload),
+  removeCustomPlatform: async (payload: CustomPlatformRemoveRequest): Promise<void> =>
+    ipcRenderer.invoke(IPCChannels.customPlatformRemove, payload)
 };
 
 contextBridge.exposeInMainWorld("mcpGateway", gatewayApi);

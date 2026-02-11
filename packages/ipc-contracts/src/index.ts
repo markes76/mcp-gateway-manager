@@ -19,7 +19,9 @@ export const IPCChannels = {
   restartPlatforms: "gateway:restart-platforms",
   assistantSuggestFromUrl: "gateway:assistant-suggest-from-url",
   modelGetStatus: "assistant:model-status",
-  modelDownload: "assistant:model-download"
+  modelDownload: "assistant:model-download",
+  customPlatformAdd: "gateway:custom-platform-add",
+  customPlatformRemove: "gateway:custom-platform-remove"
 } as const;
 
 export interface HealthCheckResponse {
@@ -33,6 +35,8 @@ export interface ThemePreferenceResponse {
 }
 
 export type SupportedPlatform = "claude" | "cursor" | "codex";
+export const BUILT_IN_PLATFORMS: readonly SupportedPlatform[] = ["claude", "cursor", "codex"] as const;
+
 export type AssistantBackendProvider =
   | "codex-internal"
   | "openai"
@@ -40,12 +44,31 @@ export type AssistantBackendProvider =
   | "gemini"
   | "bedrock";
 
+export type PlatformCategory = "builtin" | "known" | "custom";
+
+export interface CustomPlatformEntry {
+  id: string;
+  name: string;
+  configPath: string;
+}
+
+export interface CustomPlatformAddRequest {
+  name: string;
+  configPath: string;
+}
+
+export interface CustomPlatformRemoveRequest {
+  id: string;
+}
+
 export interface PlatformSnapshot {
-  platform: SupportedPlatform;
+  platform: string;
+  displayName: string;
   found: boolean;
   configPath: string;
   servers: Record<string, MCPServerDefinition>;
   error?: string;
+  category: PlatformCategory;
 }
 
 export interface GatewayStateResponse {
@@ -84,7 +107,7 @@ export interface UpdateUserConfigRequest {
 }
 
 export interface PickConfigFileRequest {
-  platform?: SupportedPlatform;
+  platform?: string;
 }
 
 export interface PickConfigFileResponse {
@@ -109,7 +132,9 @@ export interface ActivityEntry {
     | "settings-update"
     | "platform-restart"
     | "manual-backup"
-    | "revision-revert";
+    | "revision-revert"
+    | "custom-platform-add"
+    | "custom-platform-remove";
   title: string;
   detail: string;
 }
@@ -121,13 +146,13 @@ export interface ActivityLogResponse {
 export interface MatrixPolicyInput {
   name: string;
   globalEnabled: boolean;
-  platformEnabled: Record<SupportedPlatform, boolean>;
-  platformDefinitions: Partial<Record<SupportedPlatform, MCPServerDefinition>>;
+  platformEnabled: Record<string, boolean>;
+  platformDefinitions: Partial<Record<string, MCPServerDefinition>>;
 }
 
 export interface SyncRequestPayload {
   policies: MatrixPolicyInput[];
-  platformConfigPaths: Record<SupportedPlatform, string>;
+  platformConfigPaths: Record<string, string>;
 }
 
 export interface PlatformPlanSummary {
@@ -138,11 +163,11 @@ export interface PlatformPlanSummary {
 export interface SyncPlanPreviewResponse {
   generatedAt: string;
   totalOperations: number;
-  byPlatform: Record<SupportedPlatform, PlatformPlanSummary>;
+  byPlatform: Record<string, PlatformPlanSummary>;
 }
 
 export interface AppliedOperationSummary {
-  platform: SupportedPlatform;
+  platform: string;
   configPath: string;
   backupPath: string;
   operationCount: number;
@@ -155,12 +180,12 @@ export interface ApplySyncResponse {
 }
 
 export interface ManualBackupRequest {
-  platformConfigPaths: Record<SupportedPlatform, string>;
+  platformConfigPaths: Record<string, string>;
   reason?: string;
 }
 
 export interface ManualBackupEntry {
-  platform: SupportedPlatform;
+  platform: string;
   configPath: string;
   backupPath: string;
   createdAt: string;
@@ -175,7 +200,7 @@ export interface ManualBackupResponse {
 export interface RevisionEntry {
   revisionId: string;
   timestamp: string;
-  platform: SupportedPlatform;
+  platform: string;
   configPath: string;
   backupPath: string;
   operationCount: number;
@@ -185,7 +210,7 @@ export interface RevisionSummary {
   revisionId: string;
   appliedAt: string;
   totalOperations: number;
-  platforms: SupportedPlatform[];
+  platforms: string[];
   entries: RevisionEntry[];
 }
 
@@ -198,7 +223,7 @@ export interface RevertRevisionRequest {
 }
 
 export interface RevertRevisionResult {
-  platform: SupportedPlatform;
+  platform: string;
   configPath: string;
   backupPath: string;
   reverted: boolean;
@@ -217,7 +242,7 @@ export interface RestartPlatformsRequest {
 }
 
 export interface RestartPlatformResult {
-  platform: SupportedPlatform;
+  platform: string;
   appName: string;
   restarted: boolean;
   message: string;
@@ -295,4 +320,6 @@ export interface GatewayApi {
   ) => Promise<AssistantSuggestionResponse>;
   getModelStatus: () => Promise<ModelStatusResponse>;
   downloadModel: () => Promise<ModelStatusResponse>;
+  addCustomPlatform: (payload: CustomPlatformAddRequest) => Promise<CustomPlatformEntry>;
+  removeCustomPlatform: (payload: CustomPlatformRemoveRequest) => Promise<void>;
 }

@@ -55,6 +55,7 @@ export default function App() {
 
   const platforms = (state?.platforms ?? []).map((s) => ({
     platform: s.platform,
+    displayName: s.displayName,
     found: s.found,
     configPath: s.configPath
   }));
@@ -92,6 +93,8 @@ export default function App() {
           <SettingsPage
             theme={theme}
             onThemeChange={handleThemeChange}
+            state={state}
+            onRefresh={loadState}
           />
         );
       default:

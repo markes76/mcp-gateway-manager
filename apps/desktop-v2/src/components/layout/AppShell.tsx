@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 
 import type { ThemeMode } from "@mcp-gateway/domain";
-import type { SupportedPlatform } from "@mcp-gateway/ipc-contracts";
 
 import { Sidebar, type PageKey } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TitleBar } from "./TitleBar";
 
 interface PlatformHealth {
-  platform: SupportedPlatform;
+  platform: string;
+  displayName?: string;
   found: boolean;
   configPath: string;
 }

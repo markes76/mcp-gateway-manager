@@ -1,6 +1,6 @@
 {
   "name": "@mcp-gateway/desktop-v2",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "MCP Gateway Manager — redesigned desktop UI.",
   "license": "MIT",

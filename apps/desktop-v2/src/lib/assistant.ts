@@ -1,7 +1,5 @@
 import type { MCPServerDefinition } from "@mcp-gateway/domain";
-import type { MatrixPolicyInput, SupportedPlatform } from "@mcp-gateway/ipc-contracts";
-
-import { SUPPORTED_PLATFORMS } from "./matrix";
+import type { MatrixPolicyInput } from "@mcp-gateway/ipc-contracts";
 
 function sanitizeName(input: string): string {
   const sanitized = input
@@ -28,7 +26,8 @@ export function buildPolicyFromAssistantInput(params: {
   enabled: boolean;
   envValues?: Record<string, string>;
   scope: "all" | "selected";
-  selectedPlatforms: Record<SupportedPlatform, boolean>;
+  selectedPlatforms: Record<string, boolean>;
+  allPlatformIds: string[];
 }): MatrixPolicyInput {
   const name = sanitizeName(params.name);
   const args = params.argsText
@@ -48,10 +47,14 @@ export function buildPolicyFromAssistantInput(params: {
     enabled: params.enabled
   };
 
-  const defs: Partial<Record<SupportedPlatform, MCPServerDefinition>> = {};
-  const enabled: Record<SupportedPlatform, boolean> = { claude: false, cursor: false, codex: false };
+  const defs: Partial<Record<string, MCPServerDefinition>> = {};
+  const enabled: Record<string, boolean> = {};
 
-  for (const p of SUPPORTED_PLATFORMS) {
+  for (const p of params.allPlatformIds) {
+    enabled[p] = false;
+  }
+
+  for (const p of params.allPlatformIds) {
     if (params.scope === "all" || params.selectedPlatforms[p]) {
       defs[p] = cloneDefinition(base);
       enabled[p] = params.enabled;
