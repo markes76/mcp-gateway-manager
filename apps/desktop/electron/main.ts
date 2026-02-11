@@ -1401,7 +1401,7 @@ function registerIpcHandlers(): void {
 
       const assistantOptions: AssistantAnalysisOptions = {
         provider: "codex-internal",
-        strictMode: true
+        strictMode: false
       };
       const suggestion = await assistantProvider.suggestFromUrl(payload.input, assistantOptions);
 
