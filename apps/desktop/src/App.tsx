@@ -25,7 +25,6 @@ import {
   SUPPORTED_PLATFORMS
 } from "@/lib/matrix";
 import { applyTheme } from "@/lib/theme";
-import logoImage from "@/assets/logo.png";
 
 type PageKey = "dashboard" | "assistant" | "matrix" | "registry" | "activity" | "settings";
 
@@ -1464,13 +1463,8 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand">
-          <img alt="MCP Gateway Manager logo" className="brand-logo" src={logoImage} />
-          <div className="brand-copy">
-            <h1>MCP Gateway Manager</h1>
-            <p className="subtitle">Claude, Cursor, and Codex in one control surface.</p>
-          </div>
-        </div>
+        <h1>MCP Gateway Manager</h1>
+        <p className="subtitle">Claude, Cursor, and Codex in one control surface.</p>
 
         <nav aria-label="Primary">
           <ul>

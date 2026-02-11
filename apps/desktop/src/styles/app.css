@@ -28,22 +28,7 @@ body {
   padding: var(--space-xl) var(--space-lg);
 }
 
-.brand {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.brand-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  object-fit: cover;
-  box-shadow: var(--shadow);
-}
-
-.brand-copy h1 {
+.sidebar h1 {
   margin: 0;
   font-family: var(--font-display);
   font-size: 1.25rem;
@@ -51,7 +36,7 @@ body {
 }
 
 .subtitle {
-  margin: 0.2rem 0 0;
+  margin-top: var(--space-sm);
   color: var(--text-muted);
   line-height: 1.4;
 }
