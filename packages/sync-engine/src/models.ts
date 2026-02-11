@@ -52,6 +52,7 @@ export interface SyncPlan {
 }
 
 export interface AppliedOperation {
+  revisionId: string;
   platform: PlatformName;
   configPath: string;
   backupPath: string;
@@ -65,10 +66,12 @@ export interface ApplySyncPlanOptions {
 
 export interface ApplySyncPlanResult {
   appliedAt: string;
+  revisionId: string;
   operations: AppliedOperation[];
 }
 
 export interface SyncJournalEntry {
+  revisionId: string;
   timestamp: string;
   platform: PlatformName;
   configPath: string;

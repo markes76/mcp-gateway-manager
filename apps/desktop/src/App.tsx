@@ -3,9 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { ThemeMode } from "@mcp-gateway/domain";
 import type {
   ActivityEntry,
+  AssistantBackendProvider,
   AssistantSuggestionResponse,
   GatewayStateResponse,
   MatrixPolicyInput,
+  RevisionSummary,
   SupportedPlatform,
   SyncPlanPreviewResponse,
   UserConfigResponse
@@ -32,6 +34,7 @@ type PageKey =
   | "matrix"
   | "registry"
   | "activity"
+  | "history"
   | "settings"
   | "help";
 
@@ -43,8 +46,17 @@ const pages: Array<{ key: PageKey; label: string }> = [
   { key: "matrix", label: "Platform Matrix" },
   { key: "registry", label: "MCP Registry" },
   { key: "activity", label: "Activity Log" },
+  { key: "history", label: "Revisions" },
   { key: "settings", label: "Settings" },
   { key: "help", label: "Help & Guide" }
+];
+
+const assistantBackendOptions: Array<{ value: AssistantBackendProvider; label: string }> = [
+  { value: "codex-internal", label: "Codex Internal (OpenAI Responses API)" },
+  { value: "openai", label: "OpenAI" },
+  { value: "anthropic", label: "Anthropic Claude" },
+  { value: "gemini", label: "Google Gemini" },
+  { value: "bedrock", label: "Bedrock (Endpoint/Proxy Mode)" }
 ];
 
 function labelForPlatform(platform: SupportedPlatform): string {
@@ -70,6 +82,10 @@ function labelForActivityType(type: ActivityEntry["type"]): string {
       return "Settings Update";
     case "platform-restart":
       return "Platform Restart";
+    case "manual-backup":
+      return "Manual Backup";
+    case "revision-revert":
+      return "Revision Revert";
     default:
       return type;
   }
@@ -121,6 +137,30 @@ function toAdditionalPathInputs(config: UserConfigResponse | null): Record<Suppo
     cursor: [...config.platforms.cursor.additionalConfigPaths],
     codex: [...config.platforms.codex.additionalConfigPaths]
   };
+}
+
+function toAssistantBackendProvider(config: UserConfigResponse | null): AssistantBackendProvider {
+  return config?.assistant.provider ?? "codex-internal";
+}
+
+function toAssistantBackendApiKey(config: UserConfigResponse | null): string {
+  return config?.assistant.apiKey ?? "";
+}
+
+function toAssistantBackendModel(config: UserConfigResponse | null): string {
+  return config?.assistant.model ?? "";
+}
+
+function toAssistantBackendEndpoint(config: UserConfigResponse | null): string {
+  return config?.assistant.endpoint ?? "";
+}
+
+function toAssistantStrictMode(config: UserConfigResponse | null): boolean {
+  return config?.assistant.strictMode ?? true;
+}
+
+function toBackupPromptBeforeApply(config: UserConfigResponse | null): boolean {
+  return config?.backup.promptBeforeApply ?? true;
 }
 
 function sanitizePathInput(value: string): string | null {
@@ -204,6 +244,13 @@ export default function App() {
   const [settingsAdditionalPaths, setSettingsAdditionalPaths] = useState<Record<SupportedPlatform, string[]>>(
     emptyAdditionalPathInputs()
   );
+  const [assistantBackendProvider, setAssistantBackendProvider] =
+    useState<AssistantBackendProvider>("codex-internal");
+  const [assistantBackendApiKey, setAssistantBackendApiKey] = useState("");
+  const [assistantBackendModel, setAssistantBackendModel] = useState("");
+  const [assistantBackendEndpoint, setAssistantBackendEndpoint] = useState("");
+  const [assistantStrictMode, setAssistantStrictMode] = useState(true);
+  const [backupPromptBeforeApply, setBackupPromptBeforeApply] = useState(true);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -211,6 +258,10 @@ export default function App() {
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
   const [activityMessage, setActivityMessage] = useState<string | null>(null);
+
+  const [revisionHistory, setRevisionHistory] = useState<RevisionSummary[]>([]);
+  const [isLoadingRevisions, setIsLoadingRevisions] = useState(false);
+  const [revisionMessage, setRevisionMessage] = useState<string | null>(null);
 
   const loadGatewayState = async (): Promise<{
     state: GatewayStateResponse;
@@ -242,6 +293,12 @@ export default function App() {
       setUserConfig(config);
       setSettingsPaths(toPathInputs(config));
       setSettingsAdditionalPaths(toAdditionalPathInputs(config));
+      setAssistantBackendProvider(toAssistantBackendProvider(config));
+      setAssistantBackendApiKey(toAssistantBackendApiKey(config));
+      setAssistantBackendModel(toAssistantBackendModel(config));
+      setAssistantBackendEndpoint(toAssistantBackendEndpoint(config));
+      setAssistantStrictMode(toAssistantStrictMode(config));
+      setBackupPromptBeforeApply(toBackupPromptBeforeApply(config));
     } catch (error) {
       setSettingsMessage(error instanceof Error ? error.message : "Failed to load settings.");
     } finally {
@@ -260,6 +317,20 @@ export default function App() {
       setActivityMessage(error instanceof Error ? error.message : "Failed to load activity log.");
     } finally {
       setIsLoadingActivity(false);
+    }
+  };
+
+  const loadRevisionHistory = async (): Promise<void> => {
+    setIsLoadingRevisions(true);
+    setRevisionMessage(null);
+
+    try {
+      const response = await window.mcpGateway.getRevisionHistory();
+      setRevisionHistory(response.revisions);
+    } catch (error) {
+      setRevisionMessage(error instanceof Error ? error.message : "Failed to load revision history.");
+    } finally {
+      setIsLoadingRevisions(false);
     }
   };
 
@@ -296,6 +367,10 @@ export default function App() {
     if (activePage === "settings") {
       void loadUserConfig();
     }
+
+    if (activePage === "history") {
+      void loadRevisionHistory();
+    }
   }, [activePage]);
 
   useEffect(() => {
@@ -314,6 +389,8 @@ export default function App() {
         return "Inspect all MCP definitions and platform-specific command details.";
       case "activity":
         return "Audit settings updates, assistant analysis, and sync apply operations.";
+      case "history":
+        return "Track revisions, inspect backups, and revert previously applied sync changes.";
       case "settings":
         return "Customize platform config paths and local safety defaults.";
       case "help":
@@ -517,6 +594,40 @@ export default function App() {
     }
   };
 
+  const maybeCreateManualBackupBeforeApply = async (
+    platformConfigPaths: Record<SupportedPlatform, string>,
+    reason: string
+  ): Promise<void> => {
+    if (!backupPromptBeforeApply) {
+      return;
+    }
+
+    const shouldCreateSnapshot = window.confirm(
+      [
+        "Create an extra manual backup snapshot before applying changes?",
+        "Automatic .bak backups are always created during Apply Sync.",
+        "This optional snapshot gives you an additional restore point."
+      ].join("\n")
+    );
+
+    if (!shouldCreateSnapshot) {
+      return;
+    }
+
+    const backupResult = await window.mcpGateway.createManualBackup({
+      platformConfigPaths,
+      reason
+    });
+
+    const backupMessage =
+      backupResult.entries.length > 0
+        ? `Manual backup created for ${backupResult.entries.length} platform file(s).`
+        : backupResult.message;
+
+    setApplyMessage(backupMessage);
+    setAssistantMessage(backupMessage);
+  };
+
   const handleApply = async (): Promise<void> => {
     if (!gatewayState) {
       return;
@@ -528,14 +639,18 @@ export default function App() {
 
     try {
       const payload = buildSyncRequestPayload(policies, gatewayState);
+      await maybeCreateManualBackupBeforeApply(payload.platformConfigPaths, "matrix-apply");
       const result = await window.mcpGateway.applySync(payload);
       setApplyMessage(
-        `Applied ${result.operations.length} platform update(s) at ${new Date(result.appliedAt).toLocaleTimeString()}.`
+        `Applied ${result.operations.length} platform update(s) at ${new Date(result.appliedAt).toLocaleTimeString()} (revision ${result.revisionId.slice(0, 8)}).`
       );
       await maybeRestartUpdatedPlatforms(result.operations.map((operation) => operation.platform));
       await loadGatewayState();
       if (activePage === "activity") {
         await loadActivityLog();
+      }
+      if (activePage === "history") {
+        await loadRevisionHistory();
       }
       setPreview(null);
     } catch (error) {
@@ -551,7 +666,7 @@ export default function App() {
       return;
     }
 
-    setAssistantMessage("Analyzing with Codex Internal...");
+    setAssistantMessage(`Analyzing with ${assistantBackendProvider}...`);
 
     try {
       const suggestion = await window.mcpGateway.assistantSuggestFromUrl({
@@ -572,8 +687,8 @@ export default function App() {
     } catch (error) {
       setAssistantMessage(
         error instanceof Error
-          ? `Codex Internal analysis failed: ${error.message}`
-          : "Codex Internal analysis failed."
+          ? `AI analysis failed: ${error.message}`
+          : "AI analysis failed."
       );
     }
   };
@@ -700,9 +815,10 @@ export default function App() {
 
       setIsApplying(true);
       setRestartMessage(null);
+      await maybeCreateManualBackupBeforeApply(payload.platformConfigPaths, "assistant-confirm-apply");
       const applyResult = await window.mcpGateway.applySync(payload);
       setApplyMessage(
-        `Applied ${applyResult.operations.length} platform update(s) at ${new Date(applyResult.appliedAt).toLocaleTimeString()}.`
+        `Applied ${applyResult.operations.length} platform update(s) at ${new Date(applyResult.appliedAt).toLocaleTimeString()} (revision ${applyResult.revisionId.slice(0, 8)}).`
       );
       setAssistantMessage(
         `'${nextPolicy.name}' was applied successfully across ${applyResult.operations.length} platform update(s).`
@@ -710,6 +826,7 @@ export default function App() {
       await maybeRestartUpdatedPlatforms(applyResult.operations.map((operation) => operation.platform));
       await loadGatewayState();
       await loadActivityLog();
+      await loadRevisionHistory();
       setActivePage("matrix");
     } catch (error) {
       setAssistantMessage(
@@ -739,6 +856,15 @@ export default function App() {
       return;
     }
 
+    if (
+      assistantBackendProvider === "bedrock" &&
+      assistantBackendApiKey.trim().length > 0 &&
+      assistantBackendEndpoint.trim().length === 0
+    ) {
+      setSettingsMessage("Bedrock mode requires an endpoint (proxy/API gateway URL) when an API key is provided.");
+      return;
+    }
+
     setIsSavingSettings(true);
     setSettingsMessage(null);
 
@@ -757,12 +883,28 @@ export default function App() {
             configPathOverride: sanitizePathInput(settingsPaths.codex),
             additionalConfigPaths: settingsAdditionalPaths.codex
           }
+        },
+        assistant: {
+          provider: assistantBackendProvider,
+          apiKey: sanitizePathInput(assistantBackendApiKey),
+          model: sanitizePathInput(assistantBackendModel),
+          endpoint: sanitizePathInput(assistantBackendEndpoint),
+          strictMode: assistantStrictMode
+        },
+        backup: {
+          promptBeforeApply: backupPromptBeforeApply
         }
       });
 
       setUserConfig(updated);
       setSettingsPaths(toPathInputs(updated));
       setSettingsAdditionalPaths(toAdditionalPathInputs(updated));
+      setAssistantBackendProvider(toAssistantBackendProvider(updated));
+      setAssistantBackendApiKey(toAssistantBackendApiKey(updated));
+      setAssistantBackendModel(toAssistantBackendModel(updated));
+      setAssistantBackendEndpoint(toAssistantBackendEndpoint(updated));
+      setAssistantStrictMode(toAssistantStrictMode(updated));
+      setBackupPromptBeforeApply(toBackupPromptBeforeApply(updated));
       setSettingsMessage(
         `Settings saved at ${new Date(updated.savedAt ?? new Date().toISOString()).toLocaleTimeString()}.`
       );
@@ -871,6 +1013,60 @@ export default function App() {
     }));
   };
 
+  const handleCreateManualSnapshotNow = async (): Promise<void> => {
+    if (!gatewayState) {
+      setRevisionMessage("Gateway state is still loading. Try again in a moment.");
+      return;
+    }
+
+    const platformConfigPaths = {
+      claude:
+        gatewayState.platforms.find((snapshot) => snapshot.platform === "claude")?.configPath ?? "",
+      cursor:
+        gatewayState.platforms.find((snapshot) => snapshot.platform === "cursor")?.configPath ?? "",
+      codex:
+        gatewayState.platforms.find((snapshot) => snapshot.platform === "codex")?.configPath ?? ""
+    };
+
+    try {
+      const result = await window.mcpGateway.createManualBackup({
+        platformConfigPaths,
+        reason: "manual-snapshot"
+      });
+      setRevisionMessage(result.message);
+      await loadActivityLog();
+    } catch (error) {
+      setRevisionMessage(error instanceof Error ? error.message : "Failed to create manual snapshot.");
+    }
+  };
+
+  const handleRevertRevision = async (revisionId: string): Promise<void> => {
+    const confirmed = window.confirm(
+      [
+        `Revert revision ${revisionId}?`,
+        "This will copy backup files back into active MCP config files.",
+        "After revert, restart affected platforms to load restored config."
+      ].join("\n")
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setRevisionMessage("Reverting revision...");
+    try {
+      const result = await window.mcpGateway.revertRevision({ revisionId });
+      const revertedCount = result.results.filter((entry) => entry.reverted).length;
+      const total = result.results.length;
+      setRevisionMessage(`Reverted ${revertedCount}/${total} file(s) for revision ${result.revisionId}.`);
+      await loadGatewayState();
+      await loadActivityLog();
+      await loadRevisionHistory();
+    } catch (error) {
+      setRevisionMessage(error instanceof Error ? error.message : "Revision revert failed.");
+    }
+  };
+
   const renderDashboard = () => {
     const detectedPlatforms = gatewayState?.platforms.filter((platform) => platform.found).length ?? 0;
     const totalPlatforms = gatewayState?.platforms.length ?? 3;
@@ -919,6 +1115,10 @@ export default function App() {
           <p>
             Paste documentation or package URL, or ask a plain-language question such as &ldquo;How do I
             configure Tavily MCP?&rdquo;
+          </p>
+          <p className="helper-text">
+            Backend: <strong>{assistantBackendProvider}</strong> | Strict mode:{" "}
+            <strong>{assistantStrictMode ? "On" : "Off"}</strong>
           </p>
           <div className="field-grid">
             <label className="form-field">
@@ -1372,6 +1572,79 @@ export default function App() {
     );
   };
 
+  const renderHistoryPage = () => {
+    return (
+      <section className="content-grid">
+        <article className="card card-hero">
+          <h3>Revision History</h3>
+          <p>
+            Every Apply Sync writes a revision entry with backup paths. You can revert a revision to restore
+            previous MCP JSON files.
+          </p>
+          <div className="matrix-actions">
+            <button
+              className="action-button"
+              disabled={isLoadingRevisions}
+              onClick={() => void loadRevisionHistory()}
+              type="button"
+            >
+              {isLoadingRevisions ? "Refreshing..." : "Refresh Revisions"}
+            </button>
+            <button
+              className="action-button"
+              onClick={() => void handleCreateManualSnapshotNow()}
+              type="button"
+            >
+              Create Manual Snapshot
+            </button>
+          </div>
+          {revisionMessage ? <p>{revisionMessage}</p> : null}
+        </article>
+
+        <article className="card card-hero">
+          {isLoadingRevisions ? (
+            <p>Loading revision history...</p>
+          ) : revisionHistory.length === 0 ? (
+            <p>No revisions found yet. Run Apply Sync to generate revision history entries.</p>
+          ) : (
+            <table className="revision-table">
+              <thead>
+                <tr>
+                  <th>Applied</th>
+                  <th>Revision</th>
+                  <th>Platforms</th>
+                  <th>Total Ops</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {revisionHistory.map((revision) => (
+                  <tr key={revision.revisionId}>
+                    <td>{new Date(revision.appliedAt).toLocaleString()}</td>
+                    <td>
+                      <code>{revision.revisionId}</code>
+                    </td>
+                    <td>{revision.platforms.map((platform) => labelForPlatform(platform)).join(", ")}</td>
+                    <td>{revision.totalOperations}</td>
+                    <td>
+                      <button
+                        className="chip-button"
+                        onClick={() => void handleRevertRevision(revision.revisionId)}
+                        type="button"
+                      >
+                        Revert
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </article>
+      </section>
+    );
+  };
+
   const renderHelpPage = () => {
     return (
       <section className="content-grid help-grid">
@@ -1467,6 +1740,83 @@ export default function App() {
             You can also add extra MCP JSON sources per platform. The matrix will pull MCPs from these files and
             let you merge them into your primary config via Preview/Apply Sync.
           </p>
+        </article>
+
+        <article className="card card-hero">
+          <h3>Assistant Backend</h3>
+          <p>
+            Configure which AI backend analyzes MCP URLs/questions. Strict mode enforces evidence-based output
+            and blocks guesswork when docs cannot be verified.
+          </p>
+          <div className="field-grid assistant-backend-grid">
+            <label className="form-field">
+              <span>Provider</span>
+              <select
+                className="text-input"
+                onChange={(event) =>
+                  setAssistantBackendProvider(event.target.value as AssistantBackendProvider)
+                }
+                value={assistantBackendProvider}
+              >
+                {assistantBackendOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="form-field">
+              <span>API Key</span>
+              <input
+                className="text-input"
+                onChange={(event) => setAssistantBackendApiKey(event.target.value)}
+                placeholder="Paste provider API key"
+                type="password"
+                value={assistantBackendApiKey}
+              />
+            </label>
+
+            <label className="form-field">
+              <span>Model (optional override)</span>
+              <input
+                className="text-input"
+                onChange={(event) => setAssistantBackendModel(event.target.value)}
+                placeholder="Use provider default if empty"
+                type="text"
+                value={assistantBackendModel}
+              />
+            </label>
+
+            <label className="form-field">
+              <span>Endpoint (optional override)</span>
+              <input
+                className="text-input"
+                onChange={(event) => setAssistantBackendEndpoint(event.target.value)}
+                placeholder="Use provider default endpoint if empty"
+                type="text"
+                value={assistantBackendEndpoint}
+              />
+            </label>
+          </div>
+          <div className="field-grid">
+            <label className="form-field checkbox-field">
+              <input
+                checked={assistantStrictMode}
+                onChange={(event) => setAssistantStrictMode(event.target.checked)}
+                type="checkbox"
+              />
+              <span>Strict evidence mode (no guessing)</span>
+            </label>
+            <label className="form-field checkbox-field">
+              <input
+                checked={backupPromptBeforeApply}
+                onChange={(event) => setBackupPromptBeforeApply(event.target.checked)}
+                type="checkbox"
+              />
+              <span>Prompt to create extra manual backup before apply</span>
+            </label>
+          </div>
         </article>
 
         <article className="card card-hero">
@@ -1592,6 +1942,12 @@ export default function App() {
               onClick={() => {
                 setSettingsPaths(toPathInputs(userConfig));
                 setSettingsAdditionalPaths(toAdditionalPathInputs(userConfig));
+                setAssistantBackendProvider(toAssistantBackendProvider(userConfig));
+                setAssistantBackendApiKey(toAssistantBackendApiKey(userConfig));
+                setAssistantBackendModel(toAssistantBackendModel(userConfig));
+                setAssistantBackendEndpoint(toAssistantBackendEndpoint(userConfig));
+                setAssistantStrictMode(toAssistantStrictMode(userConfig));
+                setBackupPromptBeforeApply(toBackupPromptBeforeApply(userConfig));
               }}
               type="button"
             >
@@ -1661,6 +2017,7 @@ export default function App() {
         {activePage === "matrix" ? renderMatrixPage() : null}
         {activePage === "registry" ? renderRegistryPage() : null}
         {activePage === "activity" ? renderActivityPage() : null}
+        {activePage === "history" ? renderHistoryPage() : null}
         {activePage === "settings" ? renderSettingsPage() : null}
         {activePage === "help" ? renderHelpPage() : null}
       </main>

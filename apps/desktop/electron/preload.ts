@@ -10,10 +10,15 @@ import {
   type GatewayStateResponse,
   type GatewayApi,
   type HealthCheckResponse,
+  type ManualBackupRequest,
+  type ManualBackupResponse,
   type PathActionRequest,
   type PathActionResponse,
   type PickConfigFileRequest,
   type PickConfigFileResponse,
+  type RevertRevisionRequest,
+  type RevertRevisionResponse,
+  type RevisionHistoryResponse,
   type RestartPlatformsRequest,
   type RestartPlatformsResponse,
   type SyncPlanPreviewResponse,
@@ -43,6 +48,12 @@ const gatewayApi: GatewayApi = {
     ipcRenderer.invoke(IPCChannels.updateUserConfig, payload),
   getActivityLog: async (): Promise<ActivityLogResponse> =>
     ipcRenderer.invoke(IPCChannels.getActivityLog),
+  createManualBackup: async (payload: ManualBackupRequest): Promise<ManualBackupResponse> =>
+    ipcRenderer.invoke(IPCChannels.createManualBackup, payload),
+  getRevisionHistory: async (): Promise<RevisionHistoryResponse> =>
+    ipcRenderer.invoke(IPCChannels.getRevisionHistory),
+  revertRevision: async (payload: RevertRevisionRequest): Promise<RevertRevisionResponse> =>
+    ipcRenderer.invoke(IPCChannels.revertRevision, payload),
   previewSync: async (payload: SyncRequestPayload): Promise<SyncPlanPreviewResponse> =>
     ipcRenderer.invoke(IPCChannels.previewSync, payload),
   applySync: async (payload: SyncRequestPayload): Promise<ApplySyncResponse> =>

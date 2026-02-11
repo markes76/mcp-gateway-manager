@@ -11,6 +11,9 @@ export const IPCChannels = {
   getUserConfig: "gateway:get-user-config",
   updateUserConfig: "gateway:update-user-config",
   getActivityLog: "gateway:get-activity-log",
+  createManualBackup: "gateway:create-manual-backup",
+  getRevisionHistory: "gateway:get-revision-history",
+  revertRevision: "gateway:revert-revision",
   previewSync: "gateway:preview-sync",
   applySync: "gateway:apply-sync",
   restartPlatforms: "gateway:restart-platforms",
@@ -28,6 +31,12 @@ export interface ThemePreferenceResponse {
 }
 
 export type SupportedPlatform = "claude" | "cursor" | "codex";
+export type AssistantBackendProvider =
+  | "codex-internal"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "bedrock";
 
 export interface PlatformSnapshot {
   platform: SupportedPlatform;
@@ -47,13 +56,29 @@ export interface UserPlatformConfig {
   additionalConfigPaths: string[];
 }
 
+export interface AssistantBackendConfig {
+  provider: AssistantBackendProvider;
+  apiKey: string | null;
+  model: string | null;
+  endpoint: string | null;
+  strictMode: boolean;
+}
+
+export interface BackupPreferences {
+  promptBeforeApply: boolean;
+}
+
 export interface UserConfigResponse {
   platforms: Record<SupportedPlatform, UserPlatformConfig>;
+  assistant: AssistantBackendConfig;
+  backup: BackupPreferences;
   savedAt: string | null;
 }
 
 export interface UpdateUserConfigRequest {
   platforms: Record<SupportedPlatform, UserPlatformConfig>;
+  assistant: AssistantBackendConfig;
+  backup: BackupPreferences;
 }
 
 export interface PickConfigFileRequest {
@@ -76,7 +101,13 @@ export interface PathActionResponse {
 export interface ActivityEntry {
   id: string;
   timestamp: string;
-  type: "sync-apply" | "assistant-analysis" | "settings-update" | "platform-restart";
+  type:
+    | "sync-apply"
+    | "assistant-analysis"
+    | "settings-update"
+    | "platform-restart"
+    | "manual-backup"
+    | "revision-revert";
   title: string;
   detail: string;
 }
@@ -117,7 +148,65 @@ export interface AppliedOperationSummary {
 
 export interface ApplySyncResponse {
   appliedAt: string;
+  revisionId: string;
   operations: AppliedOperationSummary[];
+}
+
+export interface ManualBackupRequest {
+  platformConfigPaths: Record<SupportedPlatform, string>;
+  reason?: string;
+}
+
+export interface ManualBackupEntry {
+  platform: SupportedPlatform;
+  configPath: string;
+  backupPath: string;
+  createdAt: string;
+}
+
+export interface ManualBackupResponse {
+  createdAt: string;
+  entries: ManualBackupEntry[];
+  message: string;
+}
+
+export interface RevisionEntry {
+  revisionId: string;
+  timestamp: string;
+  platform: SupportedPlatform;
+  configPath: string;
+  backupPath: string;
+  operationCount: number;
+}
+
+export interface RevisionSummary {
+  revisionId: string;
+  appliedAt: string;
+  totalOperations: number;
+  platforms: SupportedPlatform[];
+  entries: RevisionEntry[];
+}
+
+export interface RevisionHistoryResponse {
+  revisions: RevisionSummary[];
+}
+
+export interface RevertRevisionRequest {
+  revisionId: string;
+}
+
+export interface RevertRevisionResult {
+  platform: SupportedPlatform;
+  configPath: string;
+  backupPath: string;
+  reverted: boolean;
+  message: string;
+}
+
+export interface RevertRevisionResponse {
+  revisionId: string;
+  revertedAt: string;
+  results: RevertRevisionResult[];
 }
 
 export interface RestartPlatformsRequest {
@@ -152,7 +241,7 @@ export interface AssistantEnvVarHint {
 }
 
 export interface AssistantSuggestionResponse {
-  provider: "codex-internal" | "heuristic-fallback";
+  provider: AssistantBackendProvider | "heuristic-fallback";
   mode: "live" | "fallback";
   normalizedUrl: string;
   sourceKind: AssistantSourceKind;
@@ -181,6 +270,9 @@ export interface GatewayApi {
   getUserConfig: () => Promise<UserConfigResponse>;
   updateUserConfig: (payload: UpdateUserConfigRequest) => Promise<UserConfigResponse>;
   getActivityLog: () => Promise<ActivityLogResponse>;
+  createManualBackup: (payload: ManualBackupRequest) => Promise<ManualBackupResponse>;
+  getRevisionHistory: () => Promise<RevisionHistoryResponse>;
+  revertRevision: (payload: RevertRevisionRequest) => Promise<RevertRevisionResponse>;
   previewSync: (payload: SyncRequestPayload) => Promise<SyncPlanPreviewResponse>;
   applySync: (payload: SyncRequestPayload) => Promise<ApplySyncResponse>;
   restartPlatforms: (payload: RestartPlatformsRequest) => Promise<RestartPlatformsResponse>;

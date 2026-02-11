@@ -18,15 +18,33 @@ describe("CodexInternalProvider", () => {
   it("returns fallback when no API key is provided", async () => {
     const provider = new CodexInternalProvider({
       apiKey: undefined,
-      fetchImpl: async () => {
-        throw new Error("fetch should not be called without key");
-      }
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => "<html><body>Sample docs</body></html>"
+      })
     });
 
     const suggestion = await provider.suggestFromUrl("https://github.com/acme/mcp-server");
 
     expect(suggestion.mode).toBe("fallback");
     expect(suggestion.provider).toBe("heuristic-fallback");
+  });
+
+  it("throws in strict mode when docs cannot be fetched for URL input", async () => {
+    const provider = new CodexInternalProvider({
+      strictMode: true,
+      apiKey: "test-key",
+      fetchImpl: async () => ({
+        ok: false,
+        status: 404,
+        text: async () => "not found"
+      })
+    });
+
+    await expect(
+      provider.suggestFromUrl("https://example.com/mcp-docs")
+    ).rejects.toThrow("Strict analysis is enabled");
   });
 
   it("uses Codex Internal response when JSON output is valid", async () => {

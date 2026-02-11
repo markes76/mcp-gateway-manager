@@ -14,6 +14,9 @@ describe("IPCChannels", () => {
     expect(IPCChannels.getUserConfig).toBe("gateway:get-user-config");
     expect(IPCChannels.updateUserConfig).toBe("gateway:update-user-config");
     expect(IPCChannels.getActivityLog).toBe("gateway:get-activity-log");
+    expect(IPCChannels.createManualBackup).toBe("gateway:create-manual-backup");
+    expect(IPCChannels.getRevisionHistory).toBe("gateway:get-revision-history");
+    expect(IPCChannels.revertRevision).toBe("gateway:revert-revision");
     expect(IPCChannels.previewSync).toBe("gateway:preview-sync");
     expect(IPCChannels.applySync).toBe("gateway:apply-sync");
     expect(IPCChannels.restartPlatforms).toBe("gateway:restart-platforms");

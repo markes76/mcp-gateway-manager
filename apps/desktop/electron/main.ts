@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, appendFile, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -14,7 +14,7 @@ import {
   type OpenDialogOptions
 } from "electron";
 
-import { CodexInternalProvider } from "@mcp-gateway/assistant";
+import { CodexInternalProvider, type AssistantAnalysisOptions } from "@mcp-gateway/assistant";
 import {
   isThemeMode,
   type MCPServerDefinition,
@@ -45,11 +45,19 @@ import {
   type ApplySyncResponse,
   type GatewayStateResponse,
   type HealthCheckResponse,
+  type ManualBackupEntry,
+  type ManualBackupRequest,
+  type ManualBackupResponse,
   type PathActionRequest,
   type PathActionResponse,
   type PickConfigFileRequest,
   type PickConfigFileResponse,
+  type RevertRevisionRequest,
+  type RevertRevisionResponse,
   type PlatformSnapshot,
+  type RevisionEntry,
+  type RevisionHistoryResponse,
+  type RevisionSummary,
   type RestartPlatformResult,
   type RestartPlatformsRequest,
   type RestartPlatformsResponse,
@@ -126,6 +134,10 @@ function getUserConfigPath(): string {
 
 function getActivityLogPath(): string {
   return path.join(app.getPath("userData"), "activity-log.jsonl");
+}
+
+function getSyncJournalPath(): string {
+  return path.join(app.getPath("userData"), "sync-journal.jsonl");
 }
 
 function cloneDefinition(definition: MCPServerDefinition): MCPServerDefinition {
@@ -328,6 +340,16 @@ function defaultUserConfig(): UserConfigResponse {
       cursor: { configPathOverride: null, additionalConfigPaths: [] },
       codex: { configPathOverride: null, additionalConfigPaths: [] }
     },
+    assistant: {
+      provider: "codex-internal",
+      apiKey: null,
+      model: null,
+      endpoint: null,
+      strictMode: true
+    },
+    backup: {
+      promptBeforeApply: true
+    },
     savedAt: null
   };
 }
@@ -354,6 +376,54 @@ function sanitizePathList(value: unknown): string[] {
   return [...new Set(paths)];
 }
 
+function sanitizeOptionalText(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function sanitizeAssistantBackendConfig(value: unknown): UserConfigResponse["assistant"] {
+  const defaults = defaultUserConfig().assistant;
+  const validProviders = new Set(["codex-internal", "openai", "anthropic", "gemini", "bedrock"]);
+
+  if (typeof value !== "object" || value === null) {
+    return { ...defaults };
+  }
+
+  const parsed = value as Record<string, unknown>;
+  const provider =
+    typeof parsed.provider === "string" && validProviders.has(parsed.provider)
+      ? (parsed.provider as UserConfigResponse["assistant"]["provider"])
+      : defaults.provider;
+
+  return {
+    provider,
+    apiKey: sanitizeOptionalText(parsed.apiKey),
+    model: sanitizeOptionalText(parsed.model),
+    endpoint: sanitizeOptionalText(parsed.endpoint),
+    strictMode: typeof parsed.strictMode === "boolean" ? parsed.strictMode : defaults.strictMode
+  };
+}
+
+function sanitizeBackupPreferences(value: unknown): UserConfigResponse["backup"] {
+  const defaults = defaultUserConfig().backup;
+
+  if (typeof value !== "object" || value === null) {
+    return { ...defaults };
+  }
+
+  const parsed = value as Record<string, unknown>;
+  return {
+    promptBeforeApply:
+      typeof parsed.promptBeforeApply === "boolean"
+        ? parsed.promptBeforeApply
+        : defaults.promptBeforeApply
+  };
+}
+
 function normalizeUserConfig(raw: unknown): UserConfigResponse {
   const defaults = defaultUserConfig();
 
@@ -371,6 +441,8 @@ function normalizeUserConfig(raw: unknown): UserConfigResponse {
       cursor: { ...defaults.platforms.cursor },
       codex: { ...defaults.platforms.codex }
     },
+    assistant: { ...defaults.assistant },
+    backup: { ...defaults.backup },
     savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : defaults.savedAt
   };
 
@@ -397,6 +469,9 @@ function normalizeUserConfig(raw: unknown): UserConfigResponse {
     );
   }
 
+  next.assistant = sanitizeAssistantBackendConfig(parsed.assistant);
+  next.backup = sanitizeBackupPreferences(parsed.backup);
+
   return next;
 }
 
@@ -418,6 +493,8 @@ function sanitizeUserConfigUpdate(payload: UpdateUserConfigRequest): UserConfigR
         additionalConfigPaths: sanitizePathList(payload.platforms.codex.additionalConfigPaths)
       }
     },
+    assistant: sanitizeAssistantBackendConfig(payload.assistant),
+    backup: sanitizeBackupPreferences(payload.backup),
     savedAt: defaults.savedAt
   };
 }
@@ -481,7 +558,9 @@ function parseActivityEntry(rawLine: string): ActivityEntry | null {
       "sync-apply",
       "assistant-analysis",
       "settings-update",
-      "platform-restart"
+      "platform-restart",
+      "manual-backup",
+      "revision-revert"
     ]);
     if (!validTypes.has(parsed.type)) {
       return null;
@@ -924,6 +1003,210 @@ async function restartPlatforms(
   };
 }
 
+function parseSyncJournalEntry(rawLine: string): RevisionEntry | null {
+  try {
+    const parsed = JSON.parse(rawLine) as Record<string, unknown>;
+    if (
+      typeof parsed.timestamp !== "string" ||
+      typeof parsed.platform !== "string" ||
+      typeof parsed.configPath !== "string" ||
+      typeof parsed.backupPath !== "string" ||
+      typeof parsed.operationCount !== "number"
+    ) {
+      return null;
+    }
+
+    if (!PLATFORM_ORDER.includes(parsed.platform as SupportedPlatform)) {
+      return null;
+    }
+
+    const revisionId =
+      typeof parsed.revisionId === "string" && parsed.revisionId.trim().length > 0
+        ? parsed.revisionId
+        : `legacy-${parsed.timestamp}-${parsed.platform}`;
+
+    return {
+      revisionId,
+      timestamp: parsed.timestamp,
+      platform: parsed.platform as SupportedPlatform,
+      configPath: parsed.configPath,
+      backupPath: parsed.backupPath,
+      operationCount: parsed.operationCount
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readRevisionEntries(): Promise<RevisionEntry[]> {
+  const journalPath = getSyncJournalPath();
+  if (!(await fileExists(journalPath))) {
+    return [];
+  }
+
+  try {
+    const raw = await readFile(journalPath, "utf8");
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => parseSyncJournalEntry(line))
+      .filter((entry): entry is RevisionEntry => entry !== null)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  } catch {
+    return [];
+  }
+}
+
+async function readRevisionHistory(limit: number = 50): Promise<RevisionHistoryResponse> {
+  const entries = await readRevisionEntries();
+  const grouped = new Map<string, RevisionSummary>();
+
+  for (const entry of entries) {
+    const existing = grouped.get(entry.revisionId);
+    if (!existing) {
+      grouped.set(entry.revisionId, {
+        revisionId: entry.revisionId,
+        appliedAt: entry.timestamp,
+        totalOperations: entry.operationCount,
+        platforms: [entry.platform],
+        entries: [entry]
+      });
+      continue;
+    }
+
+    existing.entries.push(entry);
+    existing.totalOperations += entry.operationCount;
+    if (!existing.platforms.includes(entry.platform)) {
+      existing.platforms.push(entry.platform);
+    }
+    if (entry.timestamp > existing.appliedAt) {
+      existing.appliedAt = entry.timestamp;
+    }
+  }
+
+  const revisions = [...grouped.values()]
+    .map((revision) => ({
+      ...revision,
+      platforms: PLATFORM_ORDER.filter((platform) => revision.platforms.includes(platform)),
+      entries: revision.entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    }))
+    .sort((a, b) => b.appliedAt.localeCompare(a.appliedAt))
+    .slice(0, limit);
+
+  return { revisions };
+}
+
+function timestampStamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+async function createManualBackup(payload: ManualBackupRequest): Promise<ManualBackupResponse> {
+  const createdAt = new Date().toISOString();
+  const entries: ManualBackupEntry[] = [];
+
+  for (const platform of PLATFORM_ORDER) {
+    const rawPath = payload.platformConfigPaths[platform];
+    if (typeof rawPath !== "string") {
+      continue;
+    }
+
+    const configPath = rawPath.trim();
+    if (configPath.length === 0 || !(await fileExists(configPath))) {
+      continue;
+    }
+
+    const backupPath = `${configPath}.manual.${timestampStamp()}.${randomUUID().slice(0, 8)}.bak`;
+    await copyFile(configPath, backupPath);
+
+    entries.push({
+      platform,
+      configPath,
+      backupPath,
+      createdAt
+    });
+  }
+
+  const reasonText = payload.reason ? ` (${payload.reason})` : "";
+  await appendActivityEntry({
+    type: "manual-backup",
+    title: "Manual backup snapshot created",
+    detail:
+      entries.length > 0
+        ? `Created ${entries.length} backup file(s)${reasonText}.`
+        : `No backup files were created${reasonText}; target paths were unavailable.`
+  });
+
+  return {
+    createdAt,
+    entries,
+    message:
+      entries.length > 0
+        ? `Created ${entries.length} manual backup file(s).`
+        : "No backups created because selected config files were not found."
+  };
+}
+
+async function revertRevision(payload: RevertRevisionRequest): Promise<RevertRevisionResponse> {
+  if (!payload || typeof payload.revisionId !== "string" || payload.revisionId.trim().length === 0) {
+    throw new Error("Revert request requires a non-empty revisionId.");
+  }
+
+  const targetRevisionId = payload.revisionId.trim();
+  const entries = await readRevisionEntries();
+  const matched = entries.filter((entry) => entry.revisionId === targetRevisionId);
+
+  if (matched.length === 0) {
+    throw new Error(`No revision found for '${targetRevisionId}'.`);
+  }
+
+  const results: RevertRevisionResponse["results"] = [];
+
+  for (const entry of [...matched].reverse()) {
+    try {
+      if (!(await fileExists(entry.backupPath))) {
+        results.push({
+          platform: entry.platform,
+          configPath: entry.configPath,
+          backupPath: entry.backupPath,
+          reverted: false,
+          message: "Backup file not found."
+        });
+        continue;
+      }
+
+      await copyFile(entry.backupPath, entry.configPath);
+      results.push({
+        platform: entry.platform,
+        configPath: entry.configPath,
+        backupPath: entry.backupPath,
+        reverted: true,
+        message: "Reverted from backup."
+      });
+    } catch (error) {
+      results.push({
+        platform: entry.platform,
+        configPath: entry.configPath,
+        backupPath: entry.backupPath,
+        reverted: false,
+        message: error instanceof Error ? error.message : "Unknown revert failure"
+      });
+    }
+  }
+
+  await appendActivityEntry({
+    type: "revision-revert",
+    title: "Revision revert executed",
+    detail: `${results.filter((result) => result.reverted).length}/${results.length} config file(s) reverted for ${targetRevisionId}.`
+  });
+
+  return {
+    revisionId: targetRevisionId,
+    revertedAt: new Date().toISOString(),
+    results
+  };
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(IPCChannels.healthCheck, (): HealthCheckResponse => {
     return {
@@ -1005,7 +1288,7 @@ function registerIpcHandlers(): void {
       await appendActivityEntry({
         type: "settings-update",
         title: "Settings updated",
-        detail: "Platform configuration path overrides were updated."
+        detail: "Platform paths, assistant backend, and backup preferences were updated."
       });
       return saved;
     }
@@ -1014,6 +1297,28 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPCChannels.getActivityLog, (): Promise<ActivityLogResponse> => {
     return readActivityLog();
   });
+
+  ipcMain.handle(
+    IPCChannels.createManualBackup,
+    async (_event, payload: ManualBackupRequest): Promise<ManualBackupResponse> => {
+      if (!payload || typeof payload !== "object" || !payload.platformConfigPaths) {
+        throw new Error("Manual backup requires platformConfigPaths.");
+      }
+
+      return createManualBackup(payload);
+    }
+  );
+
+  ipcMain.handle(IPCChannels.getRevisionHistory, (): Promise<RevisionHistoryResponse> => {
+    return readRevisionHistory();
+  });
+
+  ipcMain.handle(
+    IPCChannels.revertRevision,
+    async (_event, payload: RevertRevisionRequest): Promise<RevertRevisionResponse> => {
+      return revertRevision(payload);
+    }
+  );
 
   ipcMain.handle(
     IPCChannels.previewSync,
@@ -1052,7 +1357,7 @@ function registerIpcHandlers(): void {
       await ensureConfigFilesForChanges(plan);
 
       const result = await applySyncPlan(plan, adapters, {
-        journalPath: path.join(app.getPath("userData"), "sync-journal.jsonl")
+        journalPath: getSyncJournalPath()
       });
 
       lastAppliedAt = result.appliedAt;
@@ -1060,11 +1365,12 @@ function registerIpcHandlers(): void {
       await appendActivityEntry({
         type: "sync-apply",
         title: "Sync applied",
-        detail: `Applied ${result.operations.length} platform update(s).`
+        detail: `Applied ${result.operations.length} platform update(s). Revision: ${result.revisionId}.`
       });
 
       return {
         appliedAt: result.appliedAt,
+        revisionId: result.revisionId,
         operations: result.operations.map((operation) => ({
           platform: operation.platform,
           configPath: operation.configPath,
@@ -1093,7 +1399,15 @@ function registerIpcHandlers(): void {
         throw new Error("Assistant input URL is required.");
       }
 
-      const suggestion = await assistantProvider.suggestFromUrl(payload.input);
+      const userConfig = await readUserConfig();
+      const assistantOptions: AssistantAnalysisOptions = {
+        provider: userConfig.assistant.provider,
+        apiKey: userConfig.assistant.apiKey ?? undefined,
+        model: userConfig.assistant.model ?? undefined,
+        endpoint: userConfig.assistant.endpoint ?? undefined,
+        strictMode: userConfig.assistant.strictMode
+      };
+      const suggestion = await assistantProvider.suggestFromUrl(payload.input, assistantOptions);
 
       await appendActivityEntry({
         type: "assistant-analysis",

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -40,6 +41,7 @@ export async function applySyncPlan(
 ): Promise<ApplySyncPlanResult> {
   const operations: AppliedOperation[] = [];
   const journalPath = options?.journalPath ?? defaultJournalPath();
+  const revisionId = randomUUID();
 
   for (const platform of PLATFORM_ORDER) {
     const platformPlan = plan.byPlatform[platform];
@@ -55,6 +57,7 @@ export async function applySyncPlan(
       await adapter.writeAtomic(platformPlan.configPath, platformPlan.nextConfig);
 
       const operation: AppliedOperation = {
+        revisionId,
         platform,
         configPath: platformPlan.configPath,
         backupPath: backup.backupPath,
@@ -65,6 +68,7 @@ export async function applySyncPlan(
       operations.push(operation);
 
       await appendJournalEntry(journalPath, {
+        revisionId: operation.revisionId,
         timestamp: operation.appliedAt,
         platform: operation.platform,
         configPath: operation.configPath,
@@ -75,6 +79,7 @@ export async function applySyncPlan(
       const recoveryOperations = [
         ...operations,
         {
+          revisionId,
           platform,
           configPath: platformPlan.configPath,
           backupPath: backup.backupPath,
@@ -105,6 +110,7 @@ export async function applySyncPlan(
 
   return {
     appliedAt: new Date().toISOString(),
+    revisionId,
     operations
   };
 }

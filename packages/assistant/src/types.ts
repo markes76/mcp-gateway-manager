@@ -1,4 +1,10 @@
 export type AssistantSourceKind = "npm" | "github" | "manifest" | "generic";
+export type AssistantBackendProvider =
+  | "codex-internal"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "bedrock";
 
 export interface AssistantQuestion {
   id: string;
@@ -13,7 +19,7 @@ export interface AssistantEnvVarHint {
 }
 
 export interface AssistantUrlSuggestion {
-  provider: "codex-internal" | "heuristic-fallback";
+  provider: AssistantBackendProvider | "heuristic-fallback";
   mode: "live" | "fallback";
   normalizedUrl: string;
   sourceKind: AssistantSourceKind;
@@ -27,6 +33,14 @@ export interface AssistantUrlSuggestion {
   summary: string;
 }
 
+export interface AssistantAnalysisOptions {
+  provider?: AssistantBackendProvider;
+  apiKey?: string;
+  model?: string;
+  endpoint?: string;
+  strictMode?: boolean;
+}
+
 export interface AssistantProvider {
-  suggestFromUrl: (input: string) => Promise<AssistantUrlSuggestion>;
+  suggestFromUrl: (input: string, options?: AssistantAnalysisOptions) => Promise<AssistantUrlSuggestion>;
 }
