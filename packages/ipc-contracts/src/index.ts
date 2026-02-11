@@ -6,6 +6,8 @@ export const IPCChannels = {
   setThemePreference: "gateway:set-theme-preference",
   loadGatewayState: "gateway:load-state",
   pickConfigFilePath: "gateway:pick-config-file-path",
+  revealPath: "gateway:reveal-path",
+  openPath: "gateway:open-path",
   getUserConfig: "gateway:get-user-config",
   updateUserConfig: "gateway:update-user-config",
   getActivityLog: "gateway:get-activity-log",
@@ -60,6 +62,15 @@ export interface PickConfigFileRequest {
 
 export interface PickConfigFileResponse {
   path: string | null;
+}
+
+export interface PathActionRequest {
+  path: string;
+}
+
+export interface PathActionResponse {
+  ok: boolean;
+  message: string;
 }
 
 export interface ActivityEntry {
@@ -165,6 +176,8 @@ export interface GatewayApi {
   setThemePreference: (mode: ThemeMode) => Promise<ThemePreferenceResponse>;
   loadGatewayState: () => Promise<GatewayStateResponse>;
   pickConfigFilePath: (payload: PickConfigFileRequest) => Promise<PickConfigFileResponse>;
+  revealPath: (payload: PathActionRequest) => Promise<PathActionResponse>;
+  openPath: (payload: PathActionRequest) => Promise<PathActionResponse>;
   getUserConfig: () => Promise<UserConfigResponse>;
   updateUserConfig: (payload: UpdateUserConfigRequest) => Promise<UserConfigResponse>;
   getActivityLog: () => Promise<ActivityLogResponse>;

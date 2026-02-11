@@ -5,7 +5,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  shell,
+  type OpenDialogOptions
+} from "electron";
 
 import { CodexInternalProvider } from "@mcp-gateway/assistant";
 import {
@@ -38,6 +45,8 @@ import {
   type ApplySyncResponse,
   type GatewayStateResponse,
   type HealthCheckResponse,
+  type PathActionRequest,
+  type PathActionResponse,
   type PickConfigFileRequest,
   type PickConfigFileResponse,
   type PlatformSnapshot,
@@ -253,6 +262,63 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function requireActionPath(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error("Path action requires a payload object.");
+  }
+
+  const candidate = (payload as PathActionRequest).path;
+  if (typeof candidate !== "string") {
+    throw new Error("Path action requires a string 'path'.");
+  }
+
+  const trimmed = candidate.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Path action requires a non-empty 'path'.");
+  }
+
+  return trimmed;
+}
+
+async function revealPath(payload: PathActionRequest): Promise<PathActionResponse> {
+  const targetPath = requireActionPath(payload);
+  if (!(await fileExists(targetPath))) {
+    return {
+      ok: false,
+      message: `Path not found: ${targetPath}`
+    };
+  }
+
+  shell.showItemInFolder(targetPath);
+  return {
+    ok: true,
+    message: `Revealed in Finder: ${targetPath}`
+  };
+}
+
+async function openPath(payload: PathActionRequest): Promise<PathActionResponse> {
+  const targetPath = requireActionPath(payload);
+  if (!(await fileExists(targetPath))) {
+    return {
+      ok: false,
+      message: `Path not found: ${targetPath}`
+    };
+  }
+
+  const errorText = await shell.openPath(targetPath);
+  if (errorText.length > 0) {
+    return {
+      ok: false,
+      message: `Unable to open path: ${errorText}`
+    };
+  }
+
+  return {
+    ok: true,
+    message: `Opened path: ${targetPath}`
+  };
 }
 
 function defaultUserConfig(): UserConfigResponse {
@@ -911,6 +977,20 @@ function registerIpcHandlers(): void {
       }
 
       return { path: selected.filePaths[0] ?? null };
+    }
+  );
+
+  ipcMain.handle(
+    IPCChannels.revealPath,
+    async (_event, payload: PathActionRequest): Promise<PathActionResponse> => {
+      return revealPath(payload);
+    }
+  );
+
+  ipcMain.handle(
+    IPCChannels.openPath,
+    async (_event, payload: PathActionRequest): Promise<PathActionResponse> => {
+      return openPath(payload);
     }
   );
 

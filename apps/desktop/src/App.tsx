@@ -26,7 +26,14 @@ import {
 } from "@/lib/matrix";
 import { applyTheme } from "@/lib/theme";
 
-type PageKey = "dashboard" | "assistant" | "matrix" | "registry" | "activity" | "settings";
+type PageKey =
+  | "dashboard"
+  | "assistant"
+  | "matrix"
+  | "registry"
+  | "activity"
+  | "settings"
+  | "help";
 
 type AssistantScope = "all" | "selected";
 
@@ -36,7 +43,8 @@ const pages: Array<{ key: PageKey; label: string }> = [
   { key: "matrix", label: "Platform Matrix" },
   { key: "registry", label: "MCP Registry" },
   { key: "activity", label: "Activity Log" },
-  { key: "settings", label: "Settings" }
+  { key: "settings", label: "Settings" },
+  { key: "help", label: "Help & Guide" }
 ];
 
 function labelForPlatform(platform: SupportedPlatform): string {
@@ -308,6 +316,8 @@ export default function App() {
         return "Audit settings updates, assistant analysis, and sync apply operations.";
       case "settings":
         return "Customize platform config paths and local safety defaults.";
+      case "help":
+        return "Quick-start onboarding, troubleshooting, and safe MCP sync practices.";
       default:
         return "";
     }
@@ -824,6 +834,36 @@ export default function App() {
     }
   };
 
+  const handleRevealPath = async (pathValue: string): Promise<void> => {
+    const normalizedPath = sanitizePathInput(pathValue);
+    if (!normalizedPath) {
+      setSettingsMessage("No path selected to reveal.");
+      return;
+    }
+
+    try {
+      const result = await window.mcpGateway.revealPath({ path: normalizedPath });
+      setSettingsMessage(result.message);
+    } catch (error) {
+      setSettingsMessage(error instanceof Error ? error.message : "Unable to reveal path in Finder.");
+    }
+  };
+
+  const handleOpenPath = async (pathValue: string): Promise<void> => {
+    const normalizedPath = sanitizePathInput(pathValue);
+    if (!normalizedPath) {
+      setSettingsMessage("No path selected to open.");
+      return;
+    }
+
+    try {
+      const result = await window.mcpGateway.openPath({ path: normalizedPath });
+      setSettingsMessage(result.message);
+    } catch (error) {
+      setSettingsMessage(error instanceof Error ? error.message : "Unable to open path.");
+    }
+  };
+
   const handleRemoveAdditionalPath = (platform: SupportedPlatform, targetPath: string): void => {
     setSettingsAdditionalPaths((current) => ({
       ...current,
@@ -1332,6 +1372,88 @@ export default function App() {
     );
   };
 
+  const renderHelpPage = () => {
+    return (
+      <section className="content-grid help-grid">
+        <article className="card card-hero">
+          <h3>Quick Start</h3>
+          <ol className="help-steps">
+            <li>Open Settings and confirm primary MCP JSON path(s) for Claude, Cursor, and Codex.</li>
+            <li>Add extra MCP source files if you want to merge from multiple configs.</li>
+            <li>
+              Use Assistant to analyze a docs URL or plain-language request and stage a server policy.
+            </li>
+            <li>Review in Platform Matrix, then run Preview Sync before Apply Sync.</li>
+            <li>After apply, restart impacted apps from the restart prompt to load new MCP values.</li>
+          </ol>
+        </article>
+
+        <article className="card">
+          <h3>Path Actions</h3>
+          <p>
+            Every configured path supports one-click actions in Settings:
+          </p>
+          <ul>
+            <li>
+              <strong>Reveal</strong> opens Finder at the selected JSON file location.
+            </li>
+            <li>
+              <strong>Open</strong> opens that JSON file in your default editor for manual changes.
+            </li>
+          </ul>
+          <p className="helper-text">
+            Tip: Save Settings after changing paths so the matrix can include those files.
+          </p>
+        </article>
+
+        <article className="card">
+          <h3>Assistant Best Use</h3>
+          <ul>
+            <li>Paste package/docs links (npm, GitHub, docs pages) to auto-suggest command and args.</li>
+            <li>
+              Ask natural-language questions like: <code>Configure Tavily MCP for all platforms</code>.
+            </li>
+            <li>Fill required API keys in environment fields before staging into the matrix.</li>
+          </ul>
+        </article>
+
+        <article className="card card-hero">
+          <h3>Troubleshooting</h3>
+          <div className="help-grid-two">
+            <div>
+              <h4>Validation errors on preview/apply</h4>
+              <p>
+                Open the reported path and verify each server has a non-empty <code>command</code> string.
+                Invalid server blocks can be fixed manually, then re-run Preview Sync.
+              </p>
+            </div>
+            <div>
+              <h4>Missing MCPs in matrix</h4>
+              <p>
+                Add that platform&apos;s MCP JSON as an additional source in Settings, save, then refresh
+                the matrix.
+              </p>
+            </div>
+            <div>
+              <h4>Platform doesn&apos;t reflect changes</h4>
+              <p>
+                Restart the affected app after Apply Sync. If needed, force quit and reopen from the restart
+                actions.
+              </p>
+            </div>
+            <div>
+              <h4>Safe rollback</h4>
+              <p>
+                Each apply creates backups. If a config breaks, restore from the backup path shown in apply
+                results and restart the platform.
+              </p>
+            </div>
+          </div>
+        </article>
+      </section>
+    );
+  };
+
   const renderSettingsPage = () => {
     return (
       <section className="content-grid">
@@ -1354,6 +1476,8 @@ export default function App() {
                 gatewayState?.platforms.find((snapshot) => snapshot.platform === platform)?.configPath ??
                 "Unavailable";
               const overrideValue = userConfig?.platforms[platform].configPathOverride;
+              const primaryActionPath =
+                sanitizePathInput(settingsPaths[platform]) ?? overrideValue ?? effectivePath;
 
               return (
                 <div className="settings-platform-block" key={platform}>
@@ -1384,6 +1508,32 @@ export default function App() {
                     >
                       Browse Primary File
                     </button>
+                    <button
+                      className="action-button action-button-secondary"
+                      disabled={
+                        isSavingSettings ||
+                        isLoadingSettings ||
+                        !primaryActionPath ||
+                        primaryActionPath === "Unavailable"
+                      }
+                      onClick={() => void handleRevealPath(primaryActionPath)}
+                      type="button"
+                    >
+                      Reveal
+                    </button>
+                    <button
+                      className="action-button action-button-secondary"
+                      disabled={
+                        isSavingSettings ||
+                        isLoadingSettings ||
+                        !primaryActionPath ||
+                        primaryActionPath === "Unavailable"
+                      }
+                      onClick={() => void handleOpenPath(primaryActionPath)}
+                      type="button"
+                    >
+                      Open
+                    </button>
                   </div>
 
                   <div className="form-field">
@@ -1395,6 +1545,20 @@ export default function App() {
                         {settingsAdditionalPaths[platform].map((pathValue) => (
                           <li key={pathValue}>
                             <code>{pathValue}</code>
+                            <button
+                              className="chip-button"
+                              onClick={() => void handleRevealPath(pathValue)}
+                              type="button"
+                            >
+                              Reveal
+                            </button>
+                            <button
+                              className="chip-button"
+                              onClick={() => void handleOpenPath(pathValue)}
+                              type="button"
+                            >
+                              Open
+                            </button>
                             <button
                               className="chip-button"
                               onClick={() => handleRemoveAdditionalPath(platform, pathValue)}
@@ -1498,6 +1662,7 @@ export default function App() {
         {activePage === "registry" ? renderRegistryPage() : null}
         {activePage === "activity" ? renderActivityPage() : null}
         {activePage === "settings" ? renderSettingsPage() : null}
+        {activePage === "help" ? renderHelpPage() : null}
       </main>
     </div>
   );

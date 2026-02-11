@@ -9,6 +9,8 @@ describe("IPCChannels", () => {
     expect(IPCChannels.setThemePreference).toBe("gateway:set-theme-preference");
     expect(IPCChannels.loadGatewayState).toBe("gateway:load-state");
     expect(IPCChannels.pickConfigFilePath).toBe("gateway:pick-config-file-path");
+    expect(IPCChannels.revealPath).toBe("gateway:reveal-path");
+    expect(IPCChannels.openPath).toBe("gateway:open-path");
     expect(IPCChannels.getUserConfig).toBe("gateway:get-user-config");
     expect(IPCChannels.updateUserConfig).toBe("gateway:update-user-config");
     expect(IPCChannels.getActivityLog).toBe("gateway:get-activity-log");

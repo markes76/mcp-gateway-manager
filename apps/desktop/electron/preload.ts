@@ -10,6 +10,8 @@ import {
   type GatewayStateResponse,
   type GatewayApi,
   type HealthCheckResponse,
+  type PathActionRequest,
+  type PathActionResponse,
   type PickConfigFileRequest,
   type PickConfigFileResponse,
   type RestartPlatformsRequest,
@@ -32,6 +34,10 @@ const gatewayApi: GatewayApi = {
   pickConfigFilePath: async (
     payload: PickConfigFileRequest
   ): Promise<PickConfigFileResponse> => ipcRenderer.invoke(IPCChannels.pickConfigFilePath, payload),
+  revealPath: async (payload: PathActionRequest): Promise<PathActionResponse> =>
+    ipcRenderer.invoke(IPCChannels.revealPath, payload),
+  openPath: async (payload: PathActionRequest): Promise<PathActionResponse> =>
+    ipcRenderer.invoke(IPCChannels.openPath, payload),
   getUserConfig: async () => ipcRenderer.invoke(IPCChannels.getUserConfig),
   updateUserConfig: async (payload: UpdateUserConfigRequest) =>
     ipcRenderer.invoke(IPCChannels.updateUserConfig, payload),
