@@ -24,11 +24,13 @@ out = Path(sys.argv[2])
 out.parent.mkdir(parents=True, exist_ok=True)
 
 img = Image.open(src).convert("RGBA")
-# Keep aspect ratio and center on transparent square canvas for app icon consistency.
+# Keep aspect ratio and center on an opaque white square for clean app icon rendering.
 max_side = max(img.size)
-canvas = Image.new("RGBA", (max_side, max_side), (0, 0, 0, 0))
+canvas = Image.new("RGBA", (max_side, max_side), (255, 255, 255, 255))
+overlay = Image.new("RGBA", (max_side, max_side), (0, 0, 0, 0))
 offset = ((max_side - img.width) // 2, (max_side - img.height) // 2)
-canvas.paste(img, offset)
+overlay.paste(img, offset, img)
+canvas = Image.alpha_composite(canvas, overlay)
 
 if max_side < 1024:
     canvas = canvas.resize((1024, 1024), Image.Resampling.LANCZOS)
