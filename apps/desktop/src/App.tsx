@@ -39,6 +39,7 @@ type PageKey =
   | "help";
 
 type AssistantScope = "all" | "selected";
+type ViewMode = "simple" | "advanced";
 
 const pages: Array<{ key: PageKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
@@ -212,6 +213,7 @@ function describeDefinition(policy: MatrixPolicyInput, platform: SupportedPlatfo
 export default function App() {
   const [activePage, setActivePage] = useState<PageKey>("dashboard");
   const [themeMode, setThemeMode] = useState<ThemeMode>("system");
+  const [viewMode, setViewMode] = useState<ViewMode>("simple");
   const [isSavingTheme, setIsSavingTheme] = useState(false);
   const [healthStatus, setHealthStatus] = useState("Checking runtime...");
 
@@ -262,6 +264,7 @@ export default function App() {
   const [revisionHistory, setRevisionHistory] = useState<RevisionSummary[]>([]);
   const [isLoadingRevisions, setIsLoadingRevisions] = useState(false);
   const [revisionMessage, setRevisionMessage] = useState<string | null>(null);
+  const isAdvancedView = viewMode === "advanced";
 
   const loadGatewayState = async (): Promise<{
     state: GatewayStateResponse;
@@ -355,6 +358,11 @@ export default function App() {
         applyTheme("system");
       });
 
+    const savedViewMode = window.localStorage.getItem("mcp-gateway:view-mode");
+    if (savedViewMode === "simple" || savedViewMode === "advanced") {
+      setViewMode(savedViewMode);
+    }
+
     void loadGatewayState();
     void loadUserConfig();
   }, []);
@@ -377,24 +385,28 @@ export default function App() {
     applyTheme(themeMode);
   }, [themeMode]);
 
+  useEffect(() => {
+    window.localStorage.setItem("mcp-gateway:view-mode", viewMode);
+  }, [viewMode]);
+
   const pageHeadline = useMemo(() => {
     switch (activePage) {
       case "dashboard":
-        return "Single control plane for local MCP operations.";
+        return "Control center overview and fast actions.";
       case "assistant":
-        return "Analyze URLs or plain-language questions and generate nearly ready MCP config.";
+        return "Analyze MCP docs/questions and stage validated config.";
       case "matrix":
-        return "Enable, disable, share, or isolate MCP servers by platform before apply.";
+        return "Review platform deltas before sync apply.";
       case "registry":
-        return "Inspect all MCP definitions and platform-specific command details.";
+        return "Read-only definitions and platform command details.";
       case "activity":
-        return "Audit settings updates, assistant analysis, and sync apply operations.";
+        return "Local audit trail for apply, assistant, and settings actions.";
       case "history":
-        return "Track revisions, inspect backups, and revert previously applied sync changes.";
+        return "Backups and revision rollback controls.";
       case "settings":
-        return "Customize platform config paths and local safety defaults.";
+        return "Platform paths, AI backend, and safety defaults.";
       case "help":
-        return "Quick-start onboarding, troubleshooting, and safe MCP sync practices.";
+        return "Quick-start and troubleshooting guidance.";
       default:
         return "";
     }
@@ -1071,38 +1083,97 @@ export default function App() {
     const detectedPlatforms = gatewayState?.platforms.filter((platform) => platform.found).length ?? 0;
     const totalPlatforms = gatewayState?.platforms.length ?? 3;
     const activePolicies = policies.filter((policy) => policy.globalEnabled).length;
+    const latestActivity = activityEntries[0];
 
     return (
-      <section className="content-grid">
-        <article className="card card-hero">
-          <h3>Workspace Readiness</h3>
-          <p>
-            One control plane for Claude, Cursor, and Codex with typed sync previews, backups, and apply logs.
+      <section className="content-grid dashboard-grid">
+        <article className="card card-hero dashboard-hero">
+          <div className="dashboard-hero-content">
+            <p className="metric-kicker">Workspace status</p>
+            <h3>Everything in one MCP control center</h3>
+            {isAdvancedView ? (
+              <p className="helper-text">
+                Manage Claude, Cursor, and Codex through one desktop surface with synced apply previews,
+                local revision history, and safe rollback.
+              </p>
+            ) : null}
+            <div className="quick-actions-grid">
+              <button className="action-button" onClick={() => setActivePage("assistant")} type="button">
+                Analyze MCP URL
+              </button>
+              <button
+                className="action-button action-button-primary"
+                onClick={() => setActivePage("matrix")}
+                type="button"
+              >
+                Open Matrix
+              </button>
+              <button className="action-button" onClick={() => setActivePage("history")} type="button">
+                Revisions
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article className="card metric-card">
+          <p className="metric-kicker">Platforms</p>
+          <p className="metric-value">
+            {detectedPlatforms}/{totalPlatforms}
           </p>
-          <ul>
-            <li>Assistant can analyze URL docs or natural-language MCP configuration requests.</li>
-            <li>Platform Matrix supports per-platform add/remove/disable and one-click sharing.</li>
-            <li>Settings and activity are persisted locally for transparent operations.</li>
-          </ul>
+          <p className="metric-note">Detected config files.</p>
+        </article>
+
+        <article className="card metric-card">
+          <p className="metric-kicker">Enabled MCPs</p>
+          <p className="metric-value">{activePolicies}</p>
+          <p className="metric-note">Policies currently enabled.</p>
+        </article>
+
+        <article className="card metric-card">
+          <p className="metric-kicker">Last apply</p>
+          <p className="metric-value metric-value-small">
+            {gatewayState?.lastAppliedAt ? new Date(gatewayState.lastAppliedAt).toLocaleTimeString() : "Not yet"}
+          </p>
+          <p className="metric-note">Use Matrix to preview and apply.</p>
         </article>
 
         <article className="card">
-          <h3>Theme Controls</h3>
+          <h3>Theme</h3>
           <ThemeToggle isSaving={isSavingTheme} mode={themeMode} onChange={handleThemeChange} />
         </article>
 
         <article className="card">
-          <h3>State Snapshot</h3>
-          <p>
-            {detectedPlatforms} of {totalPlatforms} platform configs currently detected.
-          </p>
-          <p>{activePolicies} MCP policy row(s) currently enabled.</p>
-          {gatewayState?.lastAppliedAt ? (
-            <p>Last apply: {new Date(gatewayState.lastAppliedAt).toLocaleString()}</p>
+          <h3>Latest Event</h3>
+          {latestActivity ? (
+            <>
+              <p>
+                <strong>{labelForActivityType(latestActivity.type)}</strong>
+              </p>
+              <p className="helper-text">{latestActivity.title}</p>
+              <p className="helper-text">{new Date(latestActivity.timestamp).toLocaleString()}</p>
+            </>
           ) : (
-            <p>No sync apply has been executed in this session.</p>
+            <p className="helper-text">No activity recorded yet in this session.</p>
           )}
+          <button
+            className="action-button action-button-secondary"
+            onClick={() => setActivePage("activity")}
+            type="button"
+          >
+            Open Activity Log
+          </button>
         </article>
+
+        {isAdvancedView ? (
+          <article className="card card-hero">
+            <h3>What changed in this release</h3>
+            <ul>
+              <li>AI backend settings now support OpenAI, Anthropic, Gemini, and Bedrock proxy mode.</li>
+              <li>Every apply writes revision history and one-click revert options.</li>
+              <li>Optional manual snapshot can run before apply for extra safety.</li>
+            </ul>
+          </article>
+        ) : null}
       </section>
     );
   };
@@ -1112,10 +1183,12 @@ export default function App() {
       <section className="content-grid assistant-grid">
         <article className="card card-hero">
           <h3>MCP Analyze</h3>
-          <p>
-            Paste documentation or package URL, or ask a plain-language question such as &ldquo;How do I
-            configure Tavily MCP?&rdquo;
-          </p>
+          {isAdvancedView ? (
+            <p>
+              Paste documentation or package URL, or ask a plain-language question such as &ldquo;How do I
+              configure Tavily MCP?&rdquo;
+            </p>
+          ) : null}
           <p className="helper-text">
             Backend: <strong>{assistantBackendProvider}</strong> | Strict mode:{" "}
             <strong>{assistantStrictMode ? "On" : "Off"}</strong>
@@ -1138,12 +1211,11 @@ export default function App() {
           {assistantSuggestion ? (
             <div className="assistant-insight">
               <p>
-                Source: <strong>{assistantSuggestion.sourceKind}</strong> | Provider:{" "}
-                <strong>{assistantSuggestion.provider}</strong> ({assistantSuggestion.mode}) | Docs fetched:{" "}
+                Source: <strong>{assistantSuggestion.sourceKind}</strong> | Docs fetched:{" "}
                 <strong>{assistantSuggestion.docsContextUsed ? "Yes" : "No"}</strong>
               </p>
               <p>{assistantSuggestion.summary}</p>
-              {assistantSuggestion.installSteps.length > 0 ? (
+              {isAdvancedView && assistantSuggestion.installSteps.length > 0 ? (
                 <>
                   <p className="helper-text">Suggested setup steps:</p>
                   <ul>
@@ -1153,7 +1225,7 @@ export default function App() {
                   </ul>
                 </>
               ) : null}
-              {assistantSuggestion.questions.length > 0 ? (
+              {isAdvancedView && assistantSuggestion.questions.length > 0 ? (
                 <ul>
                   {assistantSuggestion.questions.map((question) => (
                     <li key={question.id}>{question.text}</li>
@@ -1225,7 +1297,7 @@ export default function App() {
                         type="password"
                         value={assistantEnvValues[hint.name] ?? ""}
                       />
-                      <small className="helper-text">{hint.description}</small>
+                      {isAdvancedView ? <small className="helper-text">{hint.description}</small> : null}
                     </label>
                   ))}
                 </div>
@@ -1526,7 +1598,9 @@ export default function App() {
       <section className="content-grid">
         <article className="card card-hero">
           <h3>Activity Log</h3>
-          <p>Recent actions are stored locally to support non-destructive review and troubleshooting.</p>
+          {isAdvancedView ? (
+            <p>Recent actions are stored locally to support non-destructive review and troubleshooting.</p>
+          ) : null}
           <div className="matrix-actions">
             <button
               className="action-button"
@@ -1577,10 +1651,12 @@ export default function App() {
       <section className="content-grid">
         <article className="card card-hero">
           <h3>Revision History</h3>
-          <p>
-            Every Apply Sync writes a revision entry with backup paths. You can revert a revision to restore
-            previous MCP JSON files.
-          </p>
+          {isAdvancedView ? (
+            <p>
+              Every Apply Sync writes a revision entry with backup paths. You can revert a revision to restore
+              previous MCP JSON files.
+            </p>
+          ) : null}
           <div className="matrix-actions">
             <button
               className="action-button"
@@ -1646,6 +1722,30 @@ export default function App() {
   };
 
   const renderHelpPage = () => {
+    if (!isAdvancedView) {
+      return (
+        <section className="content-grid help-grid">
+          <article className="card card-hero">
+            <h3>Quick Start</h3>
+            <ol className="help-steps">
+              <li>Set MCP paths in Settings.</li>
+              <li>Use Assistant to analyze a docs URL or question.</li>
+              <li>Preview in Matrix, then Apply.</li>
+              <li>Restart updated apps and use Revisions if rollback is needed.</li>
+            </ol>
+          </article>
+          <article className="card">
+            <h3>Common Fixes</h3>
+            <ul>
+              <li>Preview/apply error: verify each server has a non-empty command.</li>
+              <li>Missing MCP: add that JSON file as an additional source in Settings.</li>
+              <li>Changes not visible: restart the impacted platform.</li>
+            </ul>
+          </article>
+        </section>
+      );
+    }
+
     return (
       <section className="content-grid help-grid">
         <article className="card card-hero">
@@ -1732,22 +1832,23 @@ export default function App() {
       <section className="content-grid">
         <article className="card card-hero">
           <h3>Platform Paths</h3>
-          <p>
-            Set optional absolute path overrides for platform configuration files. Leave empty to use
-            auto-detected defaults.
-          </p>
-          <p>
-            You can also add extra MCP JSON sources per platform. The matrix will pull MCPs from these files and
-            let you merge them into your primary config via Preview/Apply Sync.
-          </p>
+          <p>Set absolute path overrides and additional MCP source files per platform.</p>
+          {isAdvancedView ? (
+            <p>
+              Leave overrides empty to use auto-detected defaults. Additional sources can be merged into
+              primary config through Preview/Apply Sync.
+            </p>
+          ) : null}
         </article>
 
         <article className="card card-hero">
           <h3>Assistant Backend</h3>
-          <p>
-            Configure which AI backend analyzes MCP URLs/questions. Strict mode enforces evidence-based output
-            and blocks guesswork when docs cannot be verified.
-          </p>
+          <p>Choose the AI provider and strict mode for MCP analysis.</p>
+          {isAdvancedView ? (
+            <p>
+              Strict evidence mode blocks guesswork when documentation cannot be verified.
+            </p>
+          ) : null}
           <div className="field-grid assistant-backend-grid">
             <label className="form-field">
               <span>Provider</span>
@@ -1983,8 +2084,21 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h1>MCP Gateway Manager</h1>
-        <p className="subtitle">Claude, Cursor, and Codex in one control surface.</p>
+        <div className="sidebar-brand">
+          <h1>MCP Gateway</h1>
+          <p className="subtitle">Manager</p>
+        </div>
+
+        <div className="sidebar-meta">
+          <div className="sidebar-meta-item">
+            <span>Platforms</span>
+            <strong>{gatewayState?.platforms.filter((platform) => platform.found).length ?? 0}/3</strong>
+          </div>
+          <div className="sidebar-meta-item">
+            <span>Enabled MCPs</span>
+            <strong>{policies.filter((policy) => policy.globalEnabled).length}</strong>
+          </div>
+        </div>
 
         <nav aria-label="Primary">
           <ul>
@@ -2007,19 +2121,39 @@ export default function App() {
         <header className="main-header">
           <div>
             <h2>{pages.find((page) => page.key === activePage)?.label}</h2>
-            <p>{pageHeadline}</p>
+            <p className="page-headline">{pageHeadline}</p>
           </div>
-          <StatusPill kind="ok" label={healthStatus} />
+          <div className="main-header-right">
+            <div className="view-mode-toggle" role="group" aria-label="View mode">
+              <button
+                className={viewMode === "simple" ? "view-mode-button view-mode-button-active" : "view-mode-button"}
+                onClick={() => setViewMode("simple")}
+                type="button"
+              >
+                Simple
+              </button>
+              <button
+                className={viewMode === "advanced" ? "view-mode-button view-mode-button-active" : "view-mode-button"}
+                onClick={() => setViewMode("advanced")}
+                type="button"
+              >
+                Advanced
+              </button>
+            </div>
+            <StatusPill kind="ok" label={healthStatus} />
+          </div>
         </header>
 
-        {activePage === "dashboard" ? renderDashboard() : null}
-        {activePage === "assistant" ? renderAssistantPage() : null}
-        {activePage === "matrix" ? renderMatrixPage() : null}
-        {activePage === "registry" ? renderRegistryPage() : null}
-        {activePage === "activity" ? renderActivityPage() : null}
-        {activePage === "history" ? renderHistoryPage() : null}
-        {activePage === "settings" ? renderSettingsPage() : null}
-        {activePage === "help" ? renderHelpPage() : null}
+        <div className="main-content">
+          {activePage === "dashboard" ? renderDashboard() : null}
+          {activePage === "assistant" ? renderAssistantPage() : null}
+          {activePage === "matrix" ? renderMatrixPage() : null}
+          {activePage === "registry" ? renderRegistryPage() : null}
+          {activePage === "activity" ? renderActivityPage() : null}
+          {activePage === "history" ? renderHistoryPage() : null}
+          {activePage === "settings" ? renderSettingsPage() : null}
+          {activePage === "help" ? renderHelpPage() : null}
+        </div>
       </main>
     </div>
   );
